@@ -1,0 +1,106 @@
+name: tappuu_app
+description: "A new Flutter project."
+
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  get: ^4.6.1
+  intl: ^0.19.0
+  http: ^1.0.0
+  cached_network_image: ^3.2.0 
+  shared_preferences: ^2.0.15
+  path: ^1.8.0
+  google_fonts: ^6.2.0
+  flutter_screenutil: ^5.9.0
+  skeletonizer: ^1.4.2
+  flutter_map: ^7.0.2
+  geolocator: ^11.0.0
+  image_picker: ^0.8.7+5
+  translator: ^1.0.3+1
+  smooth_page_indicator: ^1.1.0
+  flutter_rating_bar: ^4.0.1
+  url_launcher: ^6.1.5
+  material_design_icons_flutter: ^5.0.6595
+  flutter_svg: ^2.0.5 
+  firebase_core: ^2.18.0
+  firebase_auth: ^4.12.1
+  firebase_messaging: ^14.7.0
+  app_links: ^5.0.0
+  share_plus: ^9.0.0
+  permission_handler: ^11.0.0
+  collection: ^1.16.0
+  photo_view: ^0.15.0
+  shimmer: ^3.0.0
+  dotted_border: ^2.0.0
+  file_picker: ^5.2.3         # لاختيار ملفات من الجهاز
+  video_player: ^2.5.1        # لمعاينة الفيديوهات
+  chewie: ^1.5.0
+  googleapis_auth: ^1.5.0
+  speech_to_text: ^6.6.0
+  mic_stream_recorder: ^1.1.2
+  audioplayers: ^5.0.0
+
+
+
+
+dependency_overrides:
+  geolocator_android: 4.6.1
+
+
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^2.0.0
+  flutter_launcher_icons: ^0.12.0
+  flutter_native_splash: ^2.4.4 # قم بتحديث هذا السطر
+
+flutter_native_splash:
+      color: "#FFC813"  
+
+flutter_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/play_store_512.png"
+  adaptive_icon_background: "#FFC813"
+  adaptive_icon_foreground: "assets/images/play_store_512.png"
+  min_sdk_android: 21
+  
+
+flutter:
+  uses-material-design: true
+
+  assets:
+   - assets/
+   - assets/fonts/
+   - assets/images/
+   - assets/icon/
+
+  fonts:
+    - family: Tajawal
+      fonts:
+        - asset: assets/fonts/Tajawal-ExtraLight.ttf
+          weight: 200
+        - asset: assets/fonts/Tajawal-Light.ttf
+          weight: 300
+        - asset: assets/fonts/Tajawal-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Tajawal-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Tajawal-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Tajawal-ExtraBold.ttf
+          weight: 800
+        - asset: assets/fonts/Tajawal-Black.ttf
+          weight: 900

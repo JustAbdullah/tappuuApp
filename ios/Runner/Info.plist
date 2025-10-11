@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>CFBundleDevelopmentRegion</key>
+		<string>$(DEVELOPMENT_LANGUAGE)</string>
+
+		<key>CFBundleDisplayName</key>
+		<string>Tappuu App</string>
+
+		<key>CFBundleExecutable</key>
+		<string>$(EXECUTABLE_NAME)</string>
+
+		<key>CFBundleIdentifier</key>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+
+		<key>CFBundleInfoDictionaryVersion</key>
+		<string>6.0</string>
+
+		<key>CFBundleName</key>
+		<string>tappuu_app</string>
+
+		<key>CFBundlePackageType</key>
+		<string>APPL</string>
+
+		<key>CFBundleShortVersionString</key>
+		<string>$(FLUTTER_BUILD_NAME)</string>
+
+		<key>CFBundleSignature</key>
+		<string>????</string>
+
+		<key>CFBundleVersion</key>
+		<string>$(FLUTTER_BUILD_NUMBER)</string>
+
+		<key>LSRequiresIPhoneOS</key>
+		<true/>
+
+		<!-- صلاحيات (أذونات) -->
+		<key>NSCameraUsageDescription</key>
+		<string>نحتاج إلى الوصول إلى الكاميرا لالتقاط صورة الشعار</string>
+
+		<!-- إذن استخدام الميكروفون - ضروري لمكتبة speech_to_text -->
+		<key>NSMicrophoneUsageDescription</key>
+		<string>نحتاج إلى الوصول إلى الميكروفون للبحث الصوتي والتعرف على الكلام</string>
+
+		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+		<string>نحتاج إلى تحديد موقعك الجغرافي لعرض الإعلانات القريبة منك وتحديد موقعك كمعلن</string>
+
+		<key>NSLocationAlwaysUsageDescription</key>
+		<string>نحتاج إلى تحديد موقعك الجغرافي لعرض الإعلانات القريبة منك وتحديد موقعك كمعلن</string>
+
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>نحتاج إلى تحديد موقعك الجغرافي لعرض الإعلانات القريبة منك وتحديد موقعك كمعلن</string>
+
+		<key>NSPhotoLibraryAddUsageDescription</key>
+		<string>نحتاج إلى حفظ صورة الشعار في معرض الصور</string>
+
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>نحتاج إلى الوصول إلى معرض الصور لاختيار صورة الشعار</string>
+
+		<key>CADisableMinimumFrameDurationOnPhone</key>
+		<true/>
+
+		<key>UIApplicationSupportsIndirectInputEvents</key>
+		<true/>
+
+		<key>UILaunchStoryboardName</key>
+		<string>LaunchScreen</string>
+
+		<key>UIMainStoryboardFile</key>
+		<string>Main</string>
+
+		<key>UIStatusBarHidden</key>
+		<false/>
+
+		<key>UISupportedInterfaceOrientations</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+
+		<key>UISupportedInterfaceOrientations~ipad</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationPortraitUpsideDown</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+
+		<!-- روابط الـ URL schemes (Google sign-in / OAuth) -->
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>com.googleusercontent.apps.361185904079-b74d9ts3huumnbia6fouqrjuad8ido5c</string>
+				</array>
+			</dict>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>com.googleusercontent.apps.361185904079-fbsoi489m6573crs3mua0935kdi4c66s</string>
+				</array>
+			</dict>
+		</array>
+	</dict>
+</plist>
