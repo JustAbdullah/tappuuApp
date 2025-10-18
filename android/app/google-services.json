@@ -1,51 +1,26 @@
 {
   "project_info": {
-    "project_number": "361185904079",
-    "project_id": "stayinme-1af7d",
-    "storage_bucket": "stayinme-1af7d.firebasestorage.app"
+    "project_number": "6952523205",
+    "project_id": "tappuu-7c425",
+    "storage_bucket": "tappuu-7c425.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:361185904079:android:a5a2109459e1af7bf87eba",
+        "mobilesdk_app_id": "1:6952523205:android:f9963977ed3f8ae88227ac",
         "android_client_info": {
-          "package_name": "com.stay_in_me"
+          "package_name": "com.tappuu"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "361185904079-j9vvnk0t7q0tp2mh45lj2sa848qh13ik.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.stay_in_me",
-            "certificate_hash": "b447d427bdf20db929978b0f4f4f8658bfb8afd7"
-          }
-        },
-        {
-          "client_id": "361185904079-dc39eaj1m25jcubllvon1tsqdtlu9m4k.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAf7w2O8iDB4c-91aDNnuSnFA2FXYzcqrA"
+          "current_key": "AIzaSyCNvTqN18riHuLpNZ4MwF7pX6POuYF4qjM"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "361185904079-dc39eaj1m25jcubllvon1tsqdtlu9m4k.apps.googleusercontent.com",
-              "client_type": 3
-            },
-            {
-              "client_id": "361185904079-b74d9ts3huumnbia6fouqrjuad8ido5c.apps.googleusercontent.com",
-              "client_type": 2,
-              "ios_info": {
-                "bundle_id": "com.example.stayInMe"
-              }
-            }
-          ]
+          "other_platform_oauth_client": []
         }
       }
     }
