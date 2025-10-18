@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+
 import 'package:tappuu_app/controllers/ChatController.dart';
 import 'package:tappuu_app/controllers/LoadingController.dart';
 import 'package:tappuu_app/controllers/ThemeController.dart';
@@ -17,60 +18,81 @@ class ConversationsListScreen extends StatefulWidget {
   State<ConversationsListScreen> createState() => _ConversationsListScreenState();
 }
 
-class _ConversationsListScreenState extends State<ConversationsListScreen>
-    with SingleTickerProviderStateMixin {
+class _ConversationsListScreenState extends State<ConversationsListScreen> {
   final ChatController _chatController = Get.put(ChatController());
   final LoadingController _loadingController = Get.find<LoadingController>();
   final ThemeController _themeController = Get.find<ThemeController>();
 
-  late TabController _tabController;
-  // خرائط نوع التاب إلى باراميتر الـ API
-  final Map<int, String> _tabType = {
-    0: 'incoming', // عرض رسائل المستخدمين لي (حد تواصل معي)
-    1: 'outgoing', // عرض رسائلي للمعلنين (أنا بادي)
-  };
+  // لون صحّتين القراءة (لآخر رسالة إن كانت مني)
+  static const _receiptGrey = Color(0xFF9AA0A6);
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _tabController.addListener(_onTabChanged);
-    // جلب أول صفحة (تاب افتراضي 0 -> incoming)
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadConversations());
-  }
-
-  @override
-  void dispose() {
-    _tabController.removeListener(_onTabChanged);
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  void _onTabChanged() {
-    if (_tabController.indexIsChanging) return; // نتجنب النداء أثناء التحويل الداخلي
-    _loadConversations();
   }
 
   void _loadConversations() {
     final currentUser = _loadingController.currentUser;
     if (currentUser != null) {
-      final type = _tabType[_tabController.index] ?? 'all';
-      _chatController.fetchConversations(userId: currentUser.id??0, type: type);
+      // قائمة واحدة: نطلب الكل ونرتبه حديث -> قديم
+      _chatController.fetchConversations(userId: currentUser.id ?? 0, type: 'all');
     }
   }
 
-  // تنسيق الوقت (/م)
-  String _formatTime(DateTime date) {
-    final hour = date.hour;
-    final minute = date.minute;
-    final period = hour < 12 ? 'ص' : 'م';
-    final formattedHour = (hour == 0) ? 12 : (hour > 12 ? hour - 12 : hour);
-    return '${formattedHour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} $period';
+  // لإظهار الوقت/أمس/التاريخ بأسلوب واتساب
+  String _formatConversationTimestamp(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final thatDay = DateTime(dt.year, dt.month, dt.day);
+    final diffDays = today.difference(thatDay).inDays;
+
+    if (diffDays == 0) {
+      // اليوم -> وقت فقط
+      final hour = dt.hour;
+      final minute = dt.minute.toString().padLeft(2, '0');
+      final period = hour < 12 ? 'ص' : 'م';
+      final formattedHour = (hour == 0) ? 12 : (hour > 12 ? hour - 12 : hour);
+      return '${formattedHour.toString().padLeft(2, '0')}:$minute $period';
+    } else if (diffDays == 1) {
+      return 'أمس';
+    } else if (dt.year == now.year) {
+      return '${dt.day}/${dt.month}';
+    } else {
+      return '${dt.day}/${dt.month}/${dt.year}';
+    }
   }
 
-  String _truncateText(String text, {int maxLength = 30}) {
+  // قص نص
+  String _truncateText(String text, {int maxLength = 34}) {
+    if (text.isEmpty) return text;
     if (text.length <= maxLength) return text;
     return '${text.substring(0, maxLength - 3)}...';
+  }
+
+  // اعتبر "حديث" خلال آخر 24 ساعة
+  bool _isRecent(DateTime dt) {
+    final now = DateTime.now();
+    return now.difference(dt) <= const Duration(hours: 24);
+  }
+
+  // أيقونة مقروئية على مستوى آخر رسالة بالمحادثة (لو آخر رسالة منّي)
+  Widget _conversationReadReceipt(con.Conversation c, int? currentUserId) {
+    if (c.lastMessage == null) return const SizedBox.shrink();
+    final last = c.lastMessage!;
+    final isMine = (currentUserId != null) && last.senderId == currentUserId;
+    if (!isMine) return const SizedBox.shrink();
+
+    // تقدير: إن كان لا يوجد رسائل غير مقروءة للطرف الآخر نعتبر آخر رسالة مني قد قُرئت
+    final read = (c.unreadCount == 0);
+    return Padding(
+      padding: EdgeInsets.only(right: 6.w),
+      child: Icon(
+        Icons.done_all_rounded,
+        size: 16.sp,
+        color: read ? AppColors.buttonAndLinksColor : _receiptGrey.withOpacity(0.85),
+      ),
+    );
   }
 
   @override
@@ -86,12 +108,11 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
       backgroundColor: bgColor,
       appBar: AppBar(
         title: Text(
-          'المحادثات'.tr,
+          'الرسائل'.tr,
           style: TextStyle(
             color: AppColors.onPrimary,
             fontFamily: AppTextStyles.appFontFamily,
             fontSize: AppTextStyles.xxlarge,
-
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -101,37 +122,23 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
           icon: Icon(Icons.arrow_back, color: AppColors.onPrimary),
           onPressed: () => Get.back(),
         ),
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: AppColors.primary,
-          labelColor: AppColors.onPrimary,
-          unselectedLabelColor: AppColors.onPrimary.withOpacity(0.8),
-          tabs: [
-            Tab(
-              child: Text(
-                'عرض رسائل المستخدمين لي',
-                style: TextStyle(fontSize: AppTextStyles.small,
- fontFamily: AppTextStyles.appFontFamily),
-              ),
-            ),
-            Tab(
-              child: Text(
-                'عرض رسائلي للمعلنين',
-                style: TextStyle(fontSize: AppTextStyles.small,
- fontFamily: AppTextStyles.appFontFamily),
-              ),
-            ),
-          ],
-        ),
+        actions: [
+          IconButton(
+            onPressed: _loadConversations,
+            icon: Icon(Icons.refresh, color: AppColors.onPrimary),
+            tooltip: 'تحديث',
+          ),
+        ],
       ),
       body: Obx(() {
         if (_chatController.isLoadingConversations.value) {
-          return Center(
-            child: CircularProgressIndicator(color: AppColors.primary),
-          );
+          return Center(child: CircularProgressIndicator(color: AppColors.primary));
         }
 
-        final list = _chatController.conversationsList;
+        // تأكُّد إضافي: الأحدث أولاً
+        final list = [..._chatController.conversationsList];
+        list.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
+
         if (list.isEmpty) {
           return RefreshIndicator(
             onRefresh: () async => _loadConversations(),
@@ -142,11 +149,10 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
                 SizedBox(height: 80.h),
                 Center(
                   child: Text(
-                    'لا توجد محادثات'.tr,
+                    'لا توجد رسائل'.tr,
                     style: TextStyle(
                       fontFamily: AppTextStyles.appFontFamily,
                       fontSize: AppTextStyles.xlarge,
-
                       color: textSecondary,
                     ),
                   ),
@@ -160,7 +166,7 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
           onRefresh: () async => _loadConversations(),
           color: AppColors.primary,
           child: ListView.separated(
-            padding: EdgeInsets.symmetric(vertical: 16.h),
+            padding: EdgeInsets.symmetric(vertical: 8.h),
             itemCount: list.length,
             separatorBuilder: (context, index) => Divider(
               height: 1.h,
@@ -170,12 +176,14 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
             ),
             itemBuilder: (context, index) {
               final conversation = list[index];
+              final highlightRecent = _isRecent(conversation.lastMessageAt);
               return _buildConversationItem(
-                conversation,
-                isDarkMode,
-                cardColor,
-                textPrimary,
-                textSecondary,
+                conversation: conversation,
+                isDarkMode: isDarkMode,
+                baseCardColor: cardColor,
+                textPrimary: textPrimary,
+                textSecondary: textSecondary,
+                highlightRecent: highlightRecent,
               );
             },
           ),
@@ -184,16 +192,26 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
     );
   }
 
-  Widget _buildConversationItem(
-   con. Conversation conversation,
-    bool isDarkMode,
-    Color cardColor,
-    Color textPrimary,
-    Color textSecondary,
-  ) {
+  Widget _buildConversationItem({
+    required con.Conversation conversation,
+    required bool isDarkMode,
+    required Color baseCardColor,
+    required Color textPrimary,
+    required Color textSecondary,
+    required bool highlightRecent,
+  }) {
+    final currentUserId = _loadingController.currentUser?.id;
+    final hasUnread = (conversation.unreadCount > 0);
+
+    // خلفية مميّزة للمحادثات الحديثة + أقوى لو فيها غير مقروء
+    final bg = hasUnread
+        ? AppColors.primary.withOpacity(isDarkMode ? 0.15 : 0.10)
+        : (highlightRecent ? AppColors.primary.withOpacity(isDarkMode ? 0.09 : 0.06) : baseCardColor);
+
+    final lastMsg = conversation.lastMessage;
+
     return InkWell(
       onTap: () {
-        // التنقل لواجهة المحادثة المنفردة
         Get.to(() => ConversationScreenInMy(
               advertiser: conversation.advertiser,
               ad: conversation.ad,
@@ -202,7 +220,7 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
       },
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
-        color: cardColor,
+        color: bg,
         child: Row(
           children: [
             _buildAdvertiserAvatar(conversation.advertiser.logo),
@@ -211,17 +229,16 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // اسم المعلن والوقت
+                  // السطر الأول: اسم + وقت/أمس/تاريخ + مؤشّر المقروئية لآخر رسالة (لو منّي)
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      SizedBox(
-                        width: 180.w,
+                      Expanded(
                         child: Text(
-                          conversation.advertiser.name,
+                          conversation.advertiser?.name??"",
                           style: TextStyle(
                             fontFamily: AppTextStyles.appFontFamily,
                             fontSize: AppTextStyles.medium,
-
                             fontWeight: FontWeight.bold,
                             color: textPrimary,
                             overflow: TextOverflow.ellipsis,
@@ -229,13 +246,12 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
                           maxLines: 1,
                         ),
                       ),
-                      Spacer(),
+                      _conversationReadReceipt(conversation, currentUserId),
                       Text(
-                        _formatTime(conversation.lastMessageAt),
+                        _formatConversationTimestamp(conversation.lastMessageAt),
                         style: TextStyle(
                           fontFamily: AppTextStyles.appFontFamily,
                           fontSize: AppTextStyles.small,
-
                           color: textSecondary,
                         ),
                       ),
@@ -243,14 +259,13 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
                   ),
                   SizedBox(height: 4.h),
 
-                  // عنوان الإعلان (إن وجد)
+                  // عنوان الإعلان (إن وُجد)
                   if (conversation.ad != null) ...[
                     Text(
                       conversation.ad!.title,
                       style: TextStyle(
                         fontFamily: AppTextStyles.appFontFamily,
                         fontSize: AppTextStyles.small,
-
                         fontWeight: FontWeight.w600,
                         color: textPrimary,
                       ),
@@ -260,31 +275,42 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
                     SizedBox(height: 4.h),
                   ],
 
-                  // آخر رسالة وعدد الرسائل غير المقروءة
+                  // آخر رسالة + أيقونة ميكروفون لو صوت + بادج غير مقروء + شارة "اليوم" إن لزم
                   Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          conversation.lastMessage != null
-                              ? _truncateText(conversation.lastMessage!.body ?? '')
-                              : 'بدء محادثة جديدة'.tr,
-                          style: TextStyle(
-                            fontFamily: AppTextStyles.appFontFamily,
-                            fontSize: AppTextStyles.medium,
-
-                            color: textSecondary,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        child: Row(
+                          children: [
+                            if (lastMsg?.isVoice == true) ...[
+                              Icon(Icons.mic, size: 16.sp, color: textSecondary),
+                              SizedBox(width: 6.w),
+                            ],
+                            Flexible(
+                              child: Text(
+                                lastMsg == null
+                                    ? 'بدء محادثة جديدة'.tr
+                                    : _truncateText(
+                                        lastMsg.isVoice ? '[صوت]' : (lastMsg.body ?? ''),
+                                      ),
+                                style: TextStyle(
+                                  fontFamily: AppTextStyles.appFontFamily,
+                                  fontSize: AppTextStyles.medium,
+                                  color: hasUnread ? textPrimary : textSecondary,
+                                  fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w400,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      if (conversation.unreadCount > 0)
+
+                      // بادج غير مقروء
+                      if (hasUnread)
                         Container(
                           margin: EdgeInsets.only(left: 8.w),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 8.w,
-                            vertical: 4.h,
-                          ),
+                          padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                           decoration: BoxDecoration(
                             color: AppColors.primary,
                             borderRadius: BorderRadius.circular(12.r),
@@ -294,9 +320,31 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
                             style: TextStyle(
                               fontFamily: AppTextStyles.appFontFamily,
                               fontSize: AppTextStyles.small,
-
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+
+                      // شارة "اليوم" لو المحادثة حديثة ولا يوجد غير مقروء
+                      if (!hasUnread && _isRecent(conversation.lastMessageAt))
+                        Container(
+                          margin: EdgeInsets.only(left: 8.w),
+                          padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10.r),
+                            border: Border.all(
+                              color: AppColors.primary.withOpacity(0.6),
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            'اليوم',
+                            style: TextStyle(
+                              fontFamily: AppTextStyles.appFontFamily,
+                              fontSize: AppTextStyles.small,
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
@@ -317,9 +365,9 @@ class _ConversationsListScreenState extends State<ConversationsListScreen>
     return Container(
       width: 56.w,
       height: 56.w,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         shape: BoxShape.circle,
-        color: AppColors.greyLight,
+        color: Color(0xFFE0E0E0),
       ),
       child: ClipOval(
         child: (logoUrl != null && logoUrl.isNotEmpty)

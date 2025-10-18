@@ -1,4 +1,5 @@
 // message.dart
+
 class Message {
   final int id;
   final int senderId;
@@ -25,6 +26,9 @@ class Message {
   final bool adShowTime;
   final DateTime? adCreatedAt;
   final List<String> adImages;
+
+  /// بيانات عضو الشركة المرتبط بالإعلان (إن وُجد)
+  final CompanyMemberMessage? adCompanyMember;
 
   // advertiser profile
   final int advertiserProfileId;
@@ -64,6 +68,7 @@ class Message {
     required this.adShowTime,
     this.adCreatedAt,
     required this.adImages,
+    this.adCompanyMember,
     required this.advertiserProfileId,
     required this.advertiserUserId,
     required this.advertiserName,
@@ -79,7 +84,7 @@ class Message {
   });
 
   factory Message.fromJson(Map<String, dynamic> json) {
-    // parse ad object (may be nested under 'ad' or top-level fields)
+    // ---------- ad ----------
     Map<String, dynamic> adMap = {};
     if (json['ad'] is Map<String, dynamic>) {
       adMap = json['ad'] as Map<String, dynamic>;
@@ -99,6 +104,7 @@ class Message {
     final String adDescEn = adMap['description_en']?.toString() ?? (json['description_en']?.toString() ?? '');
     final double adPrice = adMap.isNotEmpty ? Message.parseDouble(adMap['price']) : topAdPrice;
     final bool adShowTime = adMap['show_time'] != null ? Message.parseBool(adMap['show_time']) : Message.parseBool(json['show_time']);
+
     DateTime? adCreatedAt;
     try {
       final created = adMap['created_at'] ?? json['ad_created_at'] ?? json['created_at'];
@@ -109,16 +115,16 @@ class Message {
       adCreatedAt = null;
     }
 
-    // ad images array
+    // ad images
     List<String> adImages = [];
     try {
       if (adMap['images'] is List) {
-        adImages = List<String>.from(adMap['images'].map((e) {
+        adImages = List<String>.from((adMap['images'] as List).map((e) {
           if (e is Map && e.containsKey('image_url')) return e['image_url'].toString();
           return e.toString();
         }));
       } else if (json['ad_images'] is List) {
-        adImages = List<String>.from(json['ad_images'].map((e) => e.toString()));
+        adImages = List<String>.from((json['ad_images'] as List).map((e) => e.toString()));
       } else if (json['ad'] is Map && (json['ad']['images'] is List)) {
         adImages = List<String>.from((json['ad']['images'] as List).map((e) {
           if (e is Map && e.containsKey('image_url')) return e['image_url'].toString();
@@ -129,7 +135,17 @@ class Message {
       adImages = [];
     }
 
-    // advertiser profile parsing (could be nested under 'advertiser_profile' or 'advertiser')
+    // --------- company_member داخل ad (إن وُجد) ----------
+    CompanyMemberMessage? adCompanyMember;
+    try {
+      if (adMap['company_member'] is Map<String, dynamic>) {
+        adCompanyMember = CompanyMemberMessage.fromJson(adMap['company_member'] as Map<String, dynamic>);
+      }
+    } catch (_) {
+      adCompanyMember = null;
+    }
+
+    // ---------- advertiser_profile ----------
     Map<String, dynamic> advMap = {};
     if (json['advertiser_profile'] is Map<String, dynamic>) {
       advMap = json['advertiser_profile'] as Map<String, dynamic>;
@@ -161,7 +177,7 @@ class Message {
     final advertiserLatitude = advMap['latitude'] != null ? double.tryParse(advMap['latitude'].toString()) : null;
     final advertiserLongitude = advMap['longitude'] != null ? double.tryParse(advMap['longitude'].toString()) : null;
 
-    // توليد روابط جاهزة (whatsapp, tel)
+    // روابط جاهزة
     String? whatsappUrl;
     if ((advertiserWhatsappPhone?.isNotEmpty ?? false)) {
       whatsappUrl = _buildWhatsAppUrl(advertiserWhatsappPhone!);
@@ -198,6 +214,7 @@ class Message {
       adShowTime: adShowTime,
       adCreatedAt: adCreatedAt,
       adImages: adImages,
+      adCompanyMember: adCompanyMember,
       advertiserProfileId: advertiserId,
       advertiserUserId: advertiserUserId,
       advertiserName: advertiserName,
@@ -231,12 +248,14 @@ class Message {
           'ad_number': adNumber,
           'title_ar': adTitleAr,
           'title_en': adTitleEn,
+          'slug': adSlug,
           'description_ar': adDescriptionAr,
           'description_en': adDescriptionEn,
           'price': adPrice,
           'show_time': adShowTime,
           'created_at': adCreatedAt?.toIso8601String(),
           'images': adImages,
+          if (adCompanyMember != null) 'company_member': adCompanyMember!.toJson(),
         },
         'advertiser_profile': {
           'id': advertiserProfileId,
@@ -322,4 +341,90 @@ class Message {
     if (clean.isEmpty) return null;
     return 'tel:$clean';
   }
+}
+
+/// نموذج عضو الشركة كما يرجع من API داخل ad.company_member
+class CompanyMemberMessage {
+  final int id;
+  final int advertiserProfileId;
+  final int userId;
+  final String role; // owner | publisher | viewer
+  final String? displayName;
+  final String? contactPhone;
+  final String? whatsappPhone;
+  final String? whatsappCallNumber;
+  final String status; // active | removed
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  // كائن مستخدم مختصر (اختياري)
+  final CompanyMemberUser? user;
+
+  CompanyMemberMessage({
+    required this.id,
+    required this.advertiserProfileId,
+    required this.userId,
+    required this.role,
+    this.displayName,
+    this.contactPhone,
+    this.whatsappPhone,
+    this.whatsappCallNumber,
+    required this.status,
+    this.createdAt,
+    this.updatedAt,
+    this.user,
+  });
+
+  factory CompanyMemberMessage.fromJson(Map<String, dynamic> json) {
+    return CompanyMemberMessage(
+      id: Message.parseInt(json['id']),
+      advertiserProfileId: Message.parseInt(json['advertiser_profile_id']),
+      userId: Message.parseInt(json['user_id']),
+      role: (json['role']?.toString() ?? ''),
+      displayName: json['display_name']?.toString(),
+      contactPhone: json['contact_phone']?.toString(),
+      whatsappPhone: json['whatsapp_phone']?.toString(),
+      whatsappCallNumber: json['whatsapp_call_number']?.toString(),
+      status: (json['status']?.toString() ?? ''),
+      createdAt: json['created_at'] != null ? Message.parseDateTime(json['created_at']) : null,
+      updatedAt: json['updated_at'] != null ? Message.parseDateTime(json['updated_at']) : null,
+      user: (json['user'] is Map<String, dynamic>)
+          ? CompanyMemberUser.fromJson(json['user'] as Map<String, dynamic>)
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'advertiser_profile_id': advertiserProfileId,
+        'user_id': userId,
+        'role': role,
+        'display_name': displayName,
+        'contact_phone': contactPhone,
+        'whatsapp_phone': whatsappPhone,
+        'whatsapp_call_number': whatsappCallNumber,
+        'status': status,
+        'created_at': createdAt?.toIso8601String(),
+        'updated_at': updatedAt?.toIso8601String(),
+        if (user != null) 'user': user!.toJson(),
+      };
+}
+
+class CompanyMemberUser {
+  final int? id;
+  final String? email;
+
+  CompanyMemberUser({this.id, this.email});
+
+  factory CompanyMemberUser.fromJson(Map<String, dynamic> json) {
+    return CompanyMemberUser(
+      id: Message.parseInt(json['id']),
+      email: json['email']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'email': email,
+      };
 }

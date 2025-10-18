@@ -1306,7 +1306,7 @@ void _showReportDialog() {
           child: SafeArea(
             child: Stack(children: [
               Container(
-                height: 50.h,
+                height: 60.h,
                 padding: EdgeInsets.symmetric(horizontal: 4.w),
                 color: AppColors.appBar(isDarkMode),
                 child: Row(
@@ -2349,6 +2349,30 @@ void _showContactBottomSheet() {
   final textPrimary = AppColors.textPrimary(isDarkMode);
   final cardColor = AppColors.surface(isDarkMode);
 
+  final ad = widget.ad;
+  final advertiser = ad.advertiser;
+  final member = ad.companyMember;
+
+  // هل المعلن شركة؟
+  final bool isCompany = (advertiser.accountType.toLowerCase() == 'company');
+
+  // أرقام التواصل حسب الشرط:
+  // لو شركة: كل الأرقام من العضو فقط.
+  // غير ذلك: من المعلن (فردي).
+  String? _prefer(String? v) => (v != null && v.trim().isNotEmpty) ? v.trim() : null;
+
+  final String? whatsappChatNumber =
+      isCompany ? _prefer(member?.whatsappPhone) : _prefer(advertiser.whatsappPhone);
+
+  final String? phoneCallNumber =
+      isCompany ? _prefer(member?.contactPhone) : _prefer(advertiser.contactPhone);
+
+  // اتصال واتساب: نفضّل رقم اتصال واتساب الخاص بالعضو، وإن لم يتوفر نستخدم رقم واتساب العضو،
+  // أما في الحساب الفردي فنبقيها على رقم واتساب المعلن.
+  final String? whatsappCallNumber = isCompany
+      ? (_prefer(member?.whatsappCallNumber) ?? _prefer(member?.whatsappPhone))
+      : _prefer(advertiser.whatsappPhone);
+
   showModalBottomSheet(
     context: context,
     backgroundColor: cardColor,
@@ -2364,19 +2388,16 @@ void _showContactBottomSheet() {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // شريط العنوان + بادج بريميوم
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                if (widget.ad.is_premium == true)
+                if (ad.is_premium == true)
                   Container(
                     padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Color(0xFFD7D7D6),
-                          Color(0xFFEBEBE1),
-                          Color(0xFFD7D7D6),
-                        ],
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFD7D7D6), Color(0xFFEBEBE1), Color(0xFFD7D7D6)],
                       ),
                       borderRadius: BorderRadius.circular(4.r),
                     ),
@@ -2392,7 +2413,7 @@ void _showContactBottomSheet() {
                   ),
                 Expanded(
                   child: Text(
-                    widget.ad.title,
+                    ad.title,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontFamily: AppTextStyles.appFontFamily,
@@ -2406,7 +2427,10 @@ void _showContactBottomSheet() {
                 ),
               ],
             ),
+
             SizedBox(height: 16.h),
+
+            // معلومات المعلن (شركة: اسم شركة + عضو / فردي: اسم المعلن)
             Row(
               children: [
                 Container(
@@ -2416,32 +2440,75 @@ void _showContactBottomSheet() {
                     shape: BoxShape.circle,
                     color: Colors.grey[200],
                   ),
-                  child: widget.ad.advertiser.logo.isNotEmpty
+                  child: (advertiser.logo.isNotEmpty)
                       ? ClipRRect(
                           borderRadius: BorderRadius.circular(30.r),
                           child: Image.network(
-                            widget.ad.advertiser.logo,
+                            advertiser.logo,
                             fit: BoxFit.cover,
                           ),
                         )
-                      : Icon(Icons.person, size: 30.w),
+                      : Icon(Icons.apartment, size: 30.w, color: AppColors.primary),
                 ),
                 SizedBox(width: 16.w),
                 Expanded(
-                  child: Text(
-                    widget.ad.advertiser.name ?? 'معلن',
-                    style: TextStyle(
-                      fontFamily: AppTextStyles.appFontFamily,
-                      fontSize: AppTextStyles.xlarge,
-                      fontWeight: FontWeight.bold,
-                      color: textPrimary,
-                    ),
-                  ),
+                  child: isCompany
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // اسم الشركة
+                            Text(
+                              advertiser.name ?? 'شركة',
+                              style: TextStyle(
+                                fontFamily: AppTextStyles.appFontFamily,
+                                fontSize: AppTextStyles.xlarge,
+                                fontWeight: FontWeight.bold,
+                                color: textPrimary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            SizedBox(height: 6.h),
+                            // اسم العضو (لو موجود)
+                            if ((member?.displayName ?? '').isNotEmpty)
+                              Row(
+                                children: [
+                                  Icon(Icons.person, size: 16.sp, color: AppColors.textSecondary(isDarkMode)),
+                                  SizedBox(width: 6.w),
+                                  Flexible(
+                                    child: Text(
+                                      member!.displayName,
+                                      style: TextStyle(
+                                        fontFamily: AppTextStyles.appFontFamily,
+                                        fontSize: AppTextStyles.medium,
+                                        color: AppColors.textSecondary(isDarkMode),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        )
+                      : Text(
+                          advertiser.name ?? 'معلن',
+                          style: TextStyle(
+                            fontFamily: AppTextStyles.appFontFamily,
+                            fontSize: AppTextStyles.xlarge,
+                            fontWeight: FontWeight.bold,
+                            color: textPrimary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                 ),
               ],
             ),
+
             SizedBox(height: 24.h),
-            // تغيير التخطيط إلى عمودي
+
+            // أزرار التواصل (كلها تعتمد على العضو عند الشركة)
             Column(
               children: [
                 // زر محادثة واتساب
@@ -2459,16 +2526,18 @@ void _showContactBottomSheet() {
                       ),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Color(0xFF25D366),
+                      backgroundColor: const Color(0xFF25D366),
                       padding: EdgeInsets.symmetric(vertical: 12.h),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8.r),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
                     ),
-                    onPressed: () => _launchWhatsAppChat(widget.ad.advertiser.whatsappPhone),
+                    onPressed: (whatsappChatNumber == null)
+                        ? null
+                        : () => _launchWhatsAppChat(whatsappChatNumber),
                   ),
                 ),
+
                 SizedBox(height: 12.h),
+
                 // زر الاتصال المباشر
                 SizedBox(
                   width: double.infinity,
@@ -2486,14 +2555,16 @@ void _showContactBottomSheet() {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.buttonAndLinksColor,
                       padding: EdgeInsets.symmetric(vertical: 12.h),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8.r),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
                     ),
-                    onPressed: () => _makePhoneCall(widget.ad.advertiser.contactPhone),
+                    onPressed: (phoneCallNumber == null)
+                        ? null
+                        : () => _makePhoneCall(phoneCallNumber),
                   ),
                 ),
+
                 SizedBox(height: 12.h),
+
                 // زر الاتصال عبر واتساب
                 SizedBox(
                   width: double.infinity,
@@ -2509,17 +2580,18 @@ void _showContactBottomSheet() {
                       ),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Color(0xFF128C7E),
+                      backgroundColor: const Color(0xFF128C7E),
                       padding: EdgeInsets.symmetric(vertical: 12.h),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8.r),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
                     ),
-                    onPressed: () => _launchWhatsAppCall(widget.ad.advertiser.whatsappPhone),
+                    onPressed: (whatsappCallNumber == null)
+                        ? null
+                        : () => _launchWhatsAppCall(whatsappCallNumber),
                   ),
                 ),
               ],
             ),
+
             SizedBox(height: 16.h),
           ],
         ),
@@ -2527,6 +2599,7 @@ void _showContactBottomSheet() {
     },
   );
 }
+
 String _formatDateTime(DateTime dateTime) {
   // تنسيق التاريخ إلى yyyy/mm/dd
   String year = dateTime.year.toString();

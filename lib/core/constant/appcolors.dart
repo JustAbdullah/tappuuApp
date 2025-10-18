@@ -8,6 +8,7 @@ class AppColors {
   static Color get primary => Get.find<ColorController>().primary;
   static const Color primarySecond = Color(0xFFF2B81B);
 
+static const Color wait = Color(0xFFFFC813);
   // ─── الألوان المحايدة ─────────────────
   static const Color greyLight = Color(0xFFBDBDBD);
   static const Color grey = Color(0xFF9E9E9E);

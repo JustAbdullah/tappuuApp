@@ -182,19 +182,8 @@ class _AddAdScreenState extends State<AddAdScreen> {
     });
   }
 
-  // =====================================
-  // تحسين واجهة اختيار الباقات البريميوم
-  // =====================================
- // استبدل الدالة القديمة بهذه الدالة (تعرض الشاشة كاملة وتتعامل مع جميع الأجهزة)
-
-
-
-  // ====================================
-  // دالة تقديم الإعلان بدون بريميوم
-  // ====================================
  
 
-  // بقية الكود كما هو (مع تحسينات طفيفة في التصميم)
   bool _validateAttributesStep() {
     bool allValid = true;
     for (var attribute in controller.attributes) {
@@ -554,12 +543,14 @@ class _AddAdScreenState extends State<AddAdScreen> {
 Widget _buildProfileDropdown() => Obx(() {
   if (controller.isProfilesLoading.value) return _buildLoadingIndicator();
 
+  // لا يوجد ملفات معلنين
   if (controller.advertiserProfiles.isEmpty) {
+    final isDark = Get.find<ThemeController>().isDarkMode.value;
     return Center(
       child: Container(
         padding: EdgeInsets.all(20.w),
         decoration: BoxDecoration(
-          color: AppColors.card(Get.find<ThemeController>().isDarkMode.value),
+          color: AppColors.card(isDark),
           borderRadius: BorderRadius.circular(20.r),
           boxShadow: [
             BoxShadow(
@@ -580,8 +571,7 @@ Widget _buildProfileDropdown() => Obx(() {
                 fontFamily: AppTextStyles.appFontFamily,
                 fontWeight: FontWeight.bold,
                 fontSize: AppTextStyles.large,
-
-                color: AppColors.textPrimary((Get.find<ThemeController>().isDarkMode.value)),
+                color: AppColors.textPrimary(isDark),
               ),
               textAlign: TextAlign.center,
             ),
@@ -591,8 +581,7 @@ Widget _buildProfileDropdown() => Obx(() {
               style: TextStyle(
                 fontFamily: AppTextStyles.appFontFamily,
                 fontSize: AppTextStyles.medium,
-
-                color: AppColors.textSecondary((Get.find<ThemeController>().isDarkMode.value)),
+                color: AppColors.textSecondary(isDark),
               ),
               textAlign: TextAlign.center,
             ),
@@ -601,21 +590,15 @@ Widget _buildProfileDropdown() => Obx(() {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 12.h),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12.r),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
               ),
-              onPressed: () {
-                // الانتقال إلى شاشة إنشاء/إدارة ملف المعلن
-                Get.to(() => AdvertiserDataScreen());
-              },
-              icon: Icon(Icons.add_business, color: Colors.white),
+              onPressed: () => Get.to(() => AdvertiserDataScreen()),
+              icon: const Icon(Icons.add_business, color: Colors.white),
               label: Text(
                 'إنشاء ملف معلن',
                 style: TextStyle(
                   fontFamily: AppTextStyles.appFontFamily,
                   fontSize: AppTextStyles.medium,
-
                   color: Colors.white,
                 ),
               ),
@@ -626,33 +609,79 @@ Widget _buildProfileDropdown() => Obx(() {
     );
   }
 
-  // في حال وجود ملفات معلن
+  // في حال وجود ملفات معلنين
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text('ملف المعلن *', style: _fieldLabelStyle),
       SizedBox(height: 8.h),
+
+      // ===== Dropdown يظهر نوع الملف، وإن كان "شركة" يظهر فقط اسم العضو + نوعه =====
       _buildDropdown<AdvertiserProfile>(
         hint: 'اختر بيانات المعلن',
         value: controller.selectedProfile.value,
         items: controller.advertiserProfiles.map((profile) {
-          return DropdownMenuItem(
+          final isCompany = profile.accountType.toLowerCase() == 'company';
+          final member = profile.companyMember; // قد يكون null
+
+          return DropdownMenuItem<AdvertiserProfile>(
             value: profile,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  profile.name.toString(),
-                  style: TextStyle(
-                    fontFamily: AppTextStyles.appFontFamily,
-                    fontWeight: FontWeight.bold,
+                // اسم الملف + شارة النوع (شركة/فردي)
+                Row(
+                  children: [
+                    Icon(isCompany ? Icons.apartment : Icons.person, size: 18.sp, color: AppColors.primary),
+                    SizedBox(width: 6.w),
+                    Expanded(
+                      child: Text(
+                        (profile.name ?? 'بدون اسم'),
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: AppTextStyles.appFontFamily,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+                      decoration: BoxDecoration(
+                        color: isCompany ? Colors.orange.withOpacity(0.15) : Colors.green.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(8.r),
+                      ),
+                      child: Text(
+                        isCompany ? 'شركة' : 'فردي',
+                        style: TextStyle(
+                          fontFamily: AppTextStyles.appFontFamily,
+                          fontSize: 11.sp,
+                          color: isCompany ? Colors.orange : Colors.green,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                // لو شركة: سطر مختصر لاسم العضو + نوع/دور العضو فقط
+                if (isCompany && member != null) ...[
+                  SizedBox(height: 6.h),
+                  Row(
+                    children: [
+                      Icon(Icons.badge, size: 16.sp, color: AppColors.primary),
+                      SizedBox(width: 6.w),
+                      Expanded(
+                        child: Text(
+                          '${member.displayName ?? "-"} — ${member.role}',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: AppTextStyles.appFontFamily,
+                            fontSize: 12.sp,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                SizedBox(height: 4.h),
-                Text(
-                  '${profile.contactPhone}',
-                  style: TextStyle(fontFamily: AppTextStyles.appFontFamily),
-                ),
+                ],
               ],
             ),
           );
@@ -661,6 +690,12 @@ Widget _buildProfileDropdown() => Obx(() {
           setState(() {
             controller.selectedProfile.value = profile;
             controller.idOfadvertiserProfiles.value = profile?.id ?? 0;
+
+            // إسناد النوع + المعرّف (لو شركة)
+            final isCompany = (profile?.accountType.toLowerCase() == 'company');
+            controller.selectedAdvertiserAccountType.value = isCompany ? 'company' : 'individual';
+            controller.selectedCompanyMemberId.value = isCompany ? profile?.companyMember?.id : null;
+
             _stepValid[0] = profile != null;
           });
         },
@@ -669,6 +704,7 @@ Widget _buildProfileDropdown() => Obx(() {
     ],
   );
 });
+
 
 
   Widget _buildMainCategoryDropdown() => Obx(() {

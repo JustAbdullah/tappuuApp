@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
@@ -502,106 +503,120 @@ Future<void> fetchCities(String countryCode, String language) async {
     }
   }
 
-///
-  var hasError = false.obs;
+// ========================= متغيّرات على مستوى الكونترولر =========================
+
+// نوع حساب المعلن المختار (individual | company)
+// القيمة الافتراضية: individual
+final RxString selectedAdvertiserAccountType = 'individual'.obs;
+
+// معرّف عضو الشركة المختار (يُستخدم فقط عندما يكون نوع المعلن company)
+final RxnInt selectedCompanyMemberId = RxnInt();
+
+// حالة الخطأ العامة (موجودة عندك)
+var hasError = false.obs;
+
+//// ============================================================================
+/// إنشاء إعلان جديد مع تتبّع أسباب الفشل بشكل تفصيلي
+/// ============================================================================
 Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
+  // ملاحظة: تأكد أن لديك هذه المتغيّرات/الدوال متاحة في الكلاس:
+  // - isSubmitting, isTranslating, translationProgress, totalItemsToTranslate, hasError
+  // - titleArController, descriptionArController, priceController
+  // - selectedMainCategory, selectedSubcategoryLevelOne, selectedSubcategoryLevelTwo
+  // - selectedCity, selectedArea, selectedAdvertiserAccountType, selectedCompanyMemberId
+  // - idOfadvertiserProfiles, images, uploadedImageUrls, uploadedVideoUrls
+  // - latitude, longitude
+  // - attributes, attributeValues
+  // - loadingC.currentUser?.id
+  // - _baseUrl
+  // - autoTranslate(), uploadImagesToServer(), uploadVideosToServer(), resetForm()
+  // - NotificationController, AuthController
+  //
+  // وإذا ما عندك هذه المساعدة، أضفتها هنا:
+  int? _nullableIntFromDynamic(dynamic v) {
+    try {
+      if (v == null) return null;
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      if (v is String) return int.tryParse(v.trim());
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _normalizeArabicNumbers(String s) {
+    if (s.isEmpty) return s;
+    const arabicNums1 = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+    const arabicNums2 = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+    const western     = ['0','1','2','3','4','5','6','7','8','9'];
+    var out = s;
+    for (int i = 0; i < arabicNums1.length; i++) {
+      out = out.replaceAll(arabicNums1[i], western[i]);
+    }
+    for (int i = 0; i < arabicNums2.length; i++) {
+      out = out.replaceAll(arabicNums2[i], western[i]);
+    }
+    return out.trim();
+  }
+
+  void _toastErr(String title, String msg, {Color bg = Colors.red}) {
+    Get.snackbar(title, msg, colorText: Colors.white, backgroundColor: bg);
+  }
+
+  String _anyHeader(Map<String, String> headers, List<String> keys) {
+    for (final k in keys) {
+      final v = headers[k] ?? headers[k.toLowerCase()] ?? headers[k.toUpperCase()];
+      if (v != null && v.toString().trim().isNotEmpty) return v.toString();
+    }
+    return '';
+  }
+
   try {
-    print("🚀 بدء عملية إرسال الإعلان...");
+    debugPrint("🚀 بدء عملية إرسال الإعلان...");
 
     // 1) تهيئة الحالات
     isSubmitting.value = true;
     isTranslating.value = true;
     translationProgress.value = 0.0;
 
-    // --- دالة مساعدة محلية لتحويل الأرقام العربية إلى لاتينية
-    String _normalizeArabicNumbers(String s) {
-      if (s.isEmpty) return s;
-      const arabicNums1 = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
-      const arabicNums2 = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
-      const western = ['0','1','2','3','4','5','6','7','8','9'];
-      var out = s;
-      for (int i = 0; i < arabicNums1.length; i++) {
-        out = out.replaceAll(arabicNums1[i], western[i]);
-      }
-      for (int i = 0; i < arabicNums2.length; i++) {
-        out = out.replaceAll(arabicNums2[i], western[i]);
-      }
-      return out.trim();
-    }
-
     // 2) التحقق من البيانات الأساسية
-    print("🔍 التحقق من البيانات الأساسية...");
+    debugPrint("🔍 التحقق من البيانات الأساسية...");
 
     if (titleArController.text.trim().isEmpty) {
-      print("❌ خطأ: حقل العنوان فارغ");
-      Get.snackbar(
-        "خطأ",
-        "⚠️ حقل العنوان مطلوب ولا يمكن تركه فارغًا",
-        colorText: Colors.white,
-        backgroundColor: Colors.red,
-      );
+      _toastErr("خطأ", "⚠️ حقل العنوان مطلوب ولا يمكن تركه فارغًا");
       return null;
     }
 
     if (descriptionArController.text.trim().isEmpty) {
-      print("❌ خطأ: حقل الوصف فارغ");
-      Get.snackbar(
-        "خطأ",
-        "⚠️ حقل الوصف مطلوب ولا يمكن تركه فارغًا",
-        colorText: Colors.white,
-        backgroundColor: Colors.red,
-      );
+      _toastErr("خطأ", "⚠️ حقل الوصف مطلوب ولا يمكن تركه فارغًا");
       return null;
     }
 
     if (selectedMainCategory.value == null) {
-      print("❌ خطأ: لم يتم اختيار تصنيف رئيسي");
-      Get.snackbar(
-        "خطأ",
-        "📂 يجب اختيار تصنيف رئيسي للإعلان",
-        colorText: Colors.white,
-        backgroundColor: Colors.red,
-      );
+      _toastErr("خطأ", "📂 يجب اختيار تصنيف رئيسي للإعلان");
       return null;
     }
 
     if (images == null || images.isEmpty) {
-      print("❌ خطأ: لم يتم رفع أي صور");
-      Get.snackbar(
-        "خطأ",
-        "🖼️ يجب رفع صورة واحدة على الأقل للإعلان",
-        colorText: Colors.white,
-        backgroundColor: Colors.red,
-      );
+      _toastErr("خطأ", "🖼️ يجب رفع صورة واحدة على الأقل للإعلان");
       return null;
     }
 
     if (latitude.value == null || longitude.value == null) {
-      print("❌ خطأ: الموقع الجغرافي غير محدد");
-      Get.snackbar(
-        "خطأ",
-        "📍 يجب تحديد الموقع الجغرافي للإعلان",
-        colorText: Colors.white,
-        backgroundColor: Colors.red,
-      );
+      _toastErr("خطأ", "📍 يجب تحديد الموقع الجغرافي للإعلان");
       return null;
     }
 
     if (selectedCity.value == null) {
-      print("❌ خطأ: لم يتم اختيار المدينة");
-      Get.snackbar(
-        "خطأ",
-        "🏙️ يجب اختيار المدينة للإعلان",
-        colorText: Colors.white,
-        backgroundColor: Colors.red,
-      );
+      _toastErr("خطأ", "🏙️ يجب اختيار المدينة للإعلان");
       return null;
     }
 
-    print("✅ تم التحقق من جميع البيانات الأساسية بنجاح");
+    debugPrint("✅ تم التحقق من جميع البيانات الأساسية بنجاح");
 
     // 3) حساب عدد العناصر المطلوب ترجمتها
-    int translationCounter = 2; // العنوان والوصف
+    int translationCounter = 2; // العنوان + الوصف
     for (var attribute in attributes) {
       if (attributeValues.containsKey(attribute.attributeId) && attribute.type == 'text') {
         translationCounter++;
@@ -611,7 +626,7 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
     int translatedItems = 0;
 
     // 4) ترجمة العنوان والوصف
-    print("🌐 بدء ترجمة النص...");
+    debugPrint("🌐 بدء ترجمة النص...");
     String titleEn = '';
     String descriptionEn = '';
 
@@ -619,9 +634,8 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
       titleEn = await autoTranslate(titleArController.text.trim());
       translatedItems++;
       translationProgress.value = translatedItems / translationCounter;
-      print("✅ تمت ترجمة العنوان: $titleEn");
     } catch (e) {
-      print("⚠️ فشل ترجمة العنوان، سنستعمل النص العربي كنسخة إنجليزية احتياطية: $e");
+      debugPrint("⚠️ فشل ترجمة العنوان تلقائيًا: $e");
       titleEn = titleArController.text.trim();
     }
 
@@ -629,48 +643,48 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
       descriptionEn = await autoTranslate(descriptionArController.text.trim());
       translatedItems++;
       translationProgress.value = translatedItems / translationCounter;
-      print("✅ تمت ترجمة الوصف");
     } catch (e) {
-      print("⚠️ فشل ترجمة الوصف، سنستعمل النص العربي كنسخة إنجليزية احتياطية: $e");
+      debugPrint("⚠️ فشل ترجمة الوصف تلقائيًا: $e");
       descriptionEn = descriptionArController.text.trim();
     }
 
     // 5) رفع الصور
-    print("📤 بدء رفع الصور إلى السيرفر...");
-    await uploadImagesToServer();
+    debugPrint("📤 بدء رفع الصور إلى السيرفر...");
+    try {
+      await uploadImagesToServer();
+    } catch (e) {
+      _toastErr("خطأ", "❌ تعذّر رفع الصور: ${e.toString()}");
+      return null;
+    }
 
     final imagesList = uploadedImageUrls.value
         .split(',')
-        .where((url) => url != null && url.trim().isNotEmpty)
+        .map((e) => e.trim())
+        .where((url) => url.isNotEmpty)
+        .toSet() // إزالة التكرارات
         .toList();
 
     if (imagesList.isEmpty) {
-      print("❌ فشل في رفع الصور إلى السيرفر");
-      Get.snackbar(
-        "خطأ",
-        "❌ فشل في رفع الصور إلى السيرفر",
-        colorText: Colors.white,
-        backgroundColor: Colors.red,
-      );
+      _toastErr("خطأ", "❌ فشل في رفع الصور إلى السيرفر");
       return null;
     }
-    print("✅ تم رفع ${imagesList.length} صورة بنجاح");
+    debugPrint("✅ تم رفع ${imagesList.length} صورة بنجاح");
 
     // 6) رفع الفيديوهات (اختياري)
     if (uploadedVideoUrls == null || uploadedVideoUrls.isEmpty) {
       try {
         await uploadVideosToServer();
       } catch (e) {
-        print("⚠️ فشل رفع الفيديوهات أو لا يوجد فيديوهات: $e");
+        debugPrint("⚠️ فشل رفع الفيديوهات أو لا يوجد فيديوهات: $e");
       }
     }
 
     // 7) تحضير بيانات الخصائص مع الترجمة
-    print("🔧 تحضير بيانات الخصائص...");
+    debugPrint("🔧 تحضير بيانات الخصائص...");
     List<Map<String, dynamic>> attributesData = [];
     for (var attribute in attributes) {
       if (!attributeValues.containsKey(attribute.attributeId)) continue;
-      var value = attributeValues[attribute.attributeId];
+      final value = attributeValues[attribute.attributeId];
 
       if (attribute.type == 'options') {
         attributesData.add({
@@ -681,7 +695,7 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
           "value_en": null,
         });
       } else if (attribute.type == 'boolean') {
-        final boolValue = value as bool;
+        final boolValue = (value is bool) ? value : (value.toString() == 'true');
         attributesData.add({
           "attribute_id": attribute.attributeId,
           "attribute_type": attribute.type,
@@ -695,7 +709,7 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
         try {
           valueEn = await autoTranslate(valueAr);
         } catch (e) {
-          print("⚠️ فشل ترجمة خاصية ${attribute.attributeId}، استخدام النص الأصلي: $e");
+          debugPrint("⚠️ فشل ترجمة خاصية نصية (${attribute.attributeId}): $e");
         }
         attributesData.add({
           "attribute_id": attribute.attributeId,
@@ -716,77 +730,33 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
         });
       }
     }
-    print("✅ تم تحضير ${attributesData.length} خاصية بنجاح");
+    debugPrint("✅ تم تحضير ${attributesData.length} خاصية بنجاح");
 
     // 8) بناء جسم الإعلان
-    print("📦 بناء جسم الإعلان...");
-
-    print("selectedMainCategory.value: ${selectedMainCategory.value?.id}");
-    print("selectedSubcategoryLevelOne.value: ${selectedSubcategoryLevelOne.value?.id}");
-    print("selectedSubcategoryLevelTwo.value: ${selectedSubcategoryLevelTwo.value?.id}");
-    print("selectedCity.value: ${selectedCity.value?.id}");
-    print("selectedArea.value: ${selectedArea.value?.id}");
-    print("loadingC.currentUser: ${loadingC.currentUser?.id}");
-    print("idOfadvertiserProfiles.value: ${idOfadvertiserProfiles.value}");
-
-    if (selectedMainCategory.value == null || selectedCity.value == null) {
-      print("❌ خطأ: بعض البيانات الأساسية مفقودة بعد التحقق الأولي (mainCategory أو city)");
-      Get.snackbar(
-        "خطأ",
-        "🔧 حدث خطأ في البيانات، يرجى المحاولة مرة أخرى",
-        colorText: Colors.white,
-        backgroundColor: Colors.red,
-      );
-      return null;
-    }
+    debugPrint("📦 بناء جسم الإعلان...");
 
     final mainCategory = selectedMainCategory.value!;
     final subCategoryOne = selectedSubcategoryLevelOne.value;
     final subCategoryTwo = selectedSubcategoryLevelTwo.value;
     final city = selectedCity.value!;
 
-    // === معالجة متغيرات الدفع / الباقة ===
+    // === الدفع / الباقة ===
     final bool isp = isPay == true;
     int? parsedPremiumDays;
 
     if (isp) {
-      // التحقق من وجود premiumDays
       if (premiumDays == null) {
-        print("❌ خطأ: يجب تحديد عدد أيام الباقة عند اختيار الدفع");
-        Get.snackbar(
-          "خطأ",
-          "⚠️ حدد عدد أيام الباقة (مثلاً 30 أو 60 أو 90) عند اختيار الدفع",
-          colorText: Colors.white,
-          backgroundColor: Colors.red,
-        );
+        _toastErr("خطأ", "⚠️ حدد عدد أيام الباقة عند اختيار الدفع");
         return null;
       }
-
-      // معالجة premiumDays
       if (premiumDays is int) {
         parsedPremiumDays = premiumDays;
       } else if (premiumDays is String) {
         final normalized = _normalizeArabicNumbers(premiumDays);
         parsedPremiumDays = int.tryParse(normalized);
-      } else {
-        print("❌ خطأ: نوع غير صحيح لعدد أيام الباقة");
-        Get.snackbar(
-          "خطأ",
-          "⚠️ نوع غير صحيح لعدد أيام الباقة",
-          colorText: Colors.white,
-          backgroundColor: Colors.red,
-        );
-        return null;
       }
-
       if (parsedPremiumDays == null || parsedPremiumDays <= 0) {
-        print("❌ خطأ: يجب تحديد عدد أيام الباقة صحيح عند اختيار الدفع");
-        Get.snackbar(
-          "خطأ",
-          "⚠️ حدد عدد أيام الباقة صحيح (مثلاً 30 أو 60 أو 90) عند اختيار الدفع",
-          colorText: Colors.white,
-          backgroundColor: Colors.red,
-        );
+        _toastErr("خطأ", "⚠️ عدد أيام الباقة غير صحيح");
         return null;
       }
     }
@@ -803,133 +773,285 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
       "title_en": titleEn,
       "description_ar": descriptionArController.text.trim(),
       "description_en": descriptionEn,
-      "price": priceController.text.isNotEmpty ? priceController.text.trim() : null,
+      "price": priceController.text.isNotEmpty
+          ? _normalizeArabicNumbers(priceController.text.trim())
+          : null,
       "latitude": latitude.value,
       "longitude": longitude.value,
       "images": imagesList,
       "attributes": attributesData,
-      if (uploadedVideoUrls != null && uploadedVideoUrls.isNotEmpty) "videos": uploadedVideoUrls.toList(),
+      if (uploadedVideoUrls != null && uploadedVideoUrls.isNotEmpty)
+        "videos": uploadedVideoUrls.toList(),
     };
 
-    // إضافة حقول الدفع والباقة
+    // === شركة/فرد ===
+    final String advertiserType = (selectedAdvertiserAccountType.value ?? '')
+        .toString()
+        .toLowerCase()
+        .trim();
+    final int? companyMemberId =
+        _nullableIntFromDynamic(selectedCompanyMemberId.value);
+
+    if (advertiserType == 'company') {
+      if (companyMemberId == null) {
+        _toastErr("بيانات ناقصة", "👤 اختر عضو الشركة المسؤول عن الإعلان");
+        return null;
+      }
+      adData['company_member_id'] = companyMemberId;
+    }
+
+    // حقول الدفع
     adData['ispay'] = isp ? 1 : 0;
     if (isp && parsedPremiumDays != null) {
       adData['premium_days'] = parsedPremiumDays;
     }
 
-    print("📊 بيانات الإعلان المُعدّة: ${json.encode(adData)}");
+    debugPrint("📊 بيانات الإعلان المُعدّة: ${json.encode(adData)}");
 
-    // 9) إرسال الإعلان إلى السيرفر
-    print("🌐 إرسال الإعلان إلى السيرفر...");
-    final response = await http.post(
-      Uri.parse('$_baseUrl/ads'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode(adData),
-    );
+    // 9) إرسال الإعلان
+    debugPrint("🌐 إرسال الإعلان إلى السيرفر...");
+    final uri = Uri.parse('$_baseUrl/ads');
+
+    // لو عندك توكن مصادقة، ضعه هنا:
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+     
+    };
+
+    final client = http.Client();
+    http.Response response;
+
+    try {
+      response = await client
+          .post(uri, headers: headers, body: json.encode(adData))
+          .timeout(const Duration(seconds: 30));
+    } on TimeoutException catch (e) {
+      hasError.value = true;
+      debugPrint("⏳ انتهت مهلة الاتصال: $e");
+      _toastErr("مهلة الاتصال",
+          "⏳ انتهت مهلة الاتصال بالخادم. تحقّق من الشبكة وحاول مرة أخرى.",
+          bg: Colors.orange);
+      return null;
+    } on SocketException catch (e) {
+      hasError.value = true;
+      debugPrint("🌐 مشكلة في الشبكة: $e");
+      _toastErr("مشكلة شبكة",
+          "📡 لا يمكن الوصول للسيرفر. تحقق من اتصال الإنترنت أو عنوان الخادم.");
+      return null;
+    } catch (e) {
+      hasError.value = true;
+      debugPrint("💥 فشل إرسال الطلب: $e");
+      _toastErr("خطأ", "🔧 حدث خطأ أثناء إرسال الطلب: ${e.toString()}");
+      return null;
+    } finally {
+      client.close();
+    }
 
     final rawBody = response.body;
-    print("📨 رد الخادم: ${response.statusCode} - ${response.body}");
+    final status = response.statusCode;
+    final reqId = _anyHeader(response.headers, [
+      'x-request-id',
+      'x-trace-id',
+      'x-correlation-id',
+    ]);
+    final serverTime = _anyHeader(response.headers, ['date']);
+    debugPrint("📨 رد الخادم: $status - $rawBody");
+    if (reqId.isNotEmpty) debugPrint("🧾 Request-ID: $reqId");
+    if (serverTime.isNotEmpty) debugPrint("🕒 Server-Time: $serverTime");
 
-    if (response.statusCode == 201) {
+    // نجاح
+    if (status == 201 || status == 200) {
       hasError.value = false;
 
-      final responseData = json.decode(rawBody) as Map<String, dynamic>;
+      Map<String, dynamic> responseData;
+      try {
+        responseData = (json.decode(rawBody) as Map<String, dynamic>);
+      } catch (e) {
+        // أحياناً السيرفر يرجّع نص بسيط
+        responseData = {};
+      }
 
-      // normalize is_premium to boolean (supports int 0/1, string "0"/"1", true/false, null)
       final dynamic isPremiumRaw = responseData['is_premium'];
-      final bool isPremium = (isPremiumRaw == 1 || isPremiumRaw == '1' || isPremiumRaw == true);
+      final bool isPremium =
+          (isPremiumRaw == 1 || isPremiumRaw == '1' || isPremiumRaw == true);
+      final String? premiumExpiresAt =
+          responseData['premium_expires_at']?.toString();
 
-      // premium_expires_at قد يكون null أو سلسلة
-      final String? premiumExpiresAt = responseData['premium_expires_at'] != null
-          ? responseData['premium_expires_at'].toString()
-          : null;
-
-      print("✅ تم إنشاء الإعلان بنجاح!");
+      debugPrint("✅ تم إنشاء الإعلان بنجاح!");
 
       String successMessage = "✅ تم نشر الإعلان بنجاح";
       if (isPremium && premiumExpiresAt != null && premiumExpiresAt.isNotEmpty) {
-        successMessage += " كإعلان مميز حتى ${premiumExpiresAt}";
+        successMessage += " كإعلان مميز حتى $premiumExpiresAt";
       }
+      Get.snackbar("نجاح", successMessage,
+          colorText: Colors.white, backgroundColor: Colors.green);
 
       try {
-        NotificationController _notificationController = Get.put(NotificationController());
+        final NotificationController _notificationController =
+            Get.put(NotificationController());
         _notificationController.sendCategoryNotification(
           "إعلان جديد",
           "تم إضافة إعلان جديد في التصنيف الذي تابعته",
           "category_${mainCategory.id}",
         );
       } catch (e) {
-        print("⚠️ تعذر إرسال الإشعار: $e");
+        debugPrint("⚠️ تعذر إرسال الإشعار: $e");
       }
 
-      // إعادة تهيئة الفورم وجلب بيانات المستخدم المحدثة
+      // إعادة تهيئة
       resetForm();
       try {
         Get.put(AuthController());
-        Get.find<AuthController>().fetchUserDataApi(loadingC.currentUser?.id ?? 0);
+        Get.find<AuthController>()
+            .fetchUserDataApi(loadingC.currentUser?.id ?? 0);
       } catch (e) {
-        print("⚠️ لم أتمكن من تحديث بيانات المستخدم تلقائيًا: $e");
+        debugPrint("⚠️ لم أتمكن من تحديث بيانات المستخدم تلقائيًا: $e");
       }
 
-      // === هنا نأخذ معرف الإعلان الذي أعاده السيرفر ونرده للمستدعي ===
-      final int? createdId = (responseData['id'] is num) ? (responseData['id'] as num).toInt() : null;
+      // استخراج id (يدعم أن يأتي تحت data أو بالجذر)
+      int? createdId;
+      final dynamic idDirect = responseData['id'];
+      final dynamic idInData = (responseData['data'] is Map)
+          ? (responseData['data']['id'])
+          : null;
+      final dynamic anyId = idDirect ?? idInData;
+      if (anyId is num) {
+        createdId = anyId.toInt();
+      } else if (anyId is String) {
+        createdId = int.tryParse(anyId);
+      }
+
       if (createdId != null) {
-        print("🔎 createdAdId = $createdId");
+        debugPrint("🔎 createdAdId = $createdId");
       } else {
-        print("⚠️ لم يتم إيجاد معرف الإعلان في استجابة السيرفر.");
+        debugPrint("⚠️ لم يتم إيجاد معرف الإعلان في استجابة السيرفر.");
       }
 
       return createdId;
     }
 
-    // 10) معالجة الأخطاء
-    print("❌ فشل في إنشاء الإعلان، رمز الاستجابة: ${response.statusCode}");
+    // أخطاء شائعة حسب الكود
     hasError.value = true;
 
     Map<String, dynamic> errorMap = {};
     try {
       errorMap = json.decode(rawBody) as Map<String, dynamic>;
     } catch (_) {
-      hasError.value = true;
-      print("❌ فشل في تحليل استجابة الخطأ من السيرفر");
-      Get.snackbar(
-        "خطأ",
-        "🔧 حدث خطأ تقني غير متوقع",
-        colorText: Colors.white,
-        backgroundColor: Colors.red,
-      );
+      // ليس JSON — نعرض نص خام
+      final msg = rawBody.isNotEmpty ? rawBody : 'خطأ غير معروف من الخادم';
+      _toastErr("خطأ",
+          "❌ فشل في إنشاء الإعلان (HTTP $status)\n$msg${reqId.isNotEmpty ? "\n🧾 Request-ID: $reqId" : ""}",
+          bg: Colors.orange);
       return null;
     }
 
-    final apiMessage = errorMap['message'] as String? ?? 'فشل في إضافة الإعلان';
-    print("📋 رسالة الخطأ: $apiMessage");
+    String apiMessage =
+        (errorMap['message']?.toString() ?? 'فشل في إضافة الإعلان').trim();
 
-    String validationMessages = '';
-    if (errorMap.containsKey('errors')) {
-      final errs = errorMap['errors'] as Map<String, dynamic>;
-      validationMessages = errs.entries
-          .map((e) => e.value is List ? '• ${(e.value as List).join(', ')}' : '• ${e.value}')
+    // Laravel Validation (422)
+    if (status == 422 && errorMap.containsKey('errors')) {
+      final errs = (errorMap['errors'] as Map<String, dynamic>);
+      final validationMessages = errs.entries
+          .map((e) => e.value is List
+              ? '• ${e.key}: ${(e.value as List).join(', ')}'
+              : '• ${e.key}: ${e.value}')
           .join('\n');
-
-      print("📋 أخطاء التحقق: $validationMessages");
+      final fullMessage = [
+        "❌ $apiMessage",
+        if (validationMessages.isNotEmpty) "📋 التفاصيل:\n$validationMessages",
+        if (reqId.isNotEmpty) "🧾 Request-ID: $reqId",
+      ].join('\n');
+      _toastErr("تحقق المدخلات", fullMessage, bg: Colors.orange);
+      return null;
     }
 
+    // 401/403: صلاحيات/توكن
+    if (status == 401 || status == 403) {
+      final fullMessage = [
+        "🔒 غير مصرح: $apiMessage",
+        "يرجى تسجيل الدخول مجددًا أو التأكد من صلاحيات الحساب.",
+        if (reqId.isNotEmpty) "🧾 Request-ID: $reqId",
+      ].join('\n');
+      _toastErr("صلاحيات", fullMessage, bg: Colors.orange);
+      return null;
+    }
+
+    // 404: المسار غير موجود
+    if (status == 404) {
+      final fullMessage = [
+        "🔎 الوجهة غير موجودة: $apiMessage",
+        "تحقق من رابط الـ API ($_baseUrl/ads) وتأكد من عدم تكرار /api في الـ proxy.",
+        if (reqId.isNotEmpty) "🧾 Request-ID: $reqId",
+      ].join('\n');
+      _toastErr("المسار غير موجود", fullMessage, bg: Colors.orange);
+      return null;
+    }
+
+    // 409: تعارض (مثل حدّ الإعلانات المجانية)
+    if (status == 409) {
+      final fullMessage = [
+        "⚠️ تعذّر إكمال العملية: $apiMessage",
+        "قد تكون وصلت للحد المسموح للإعلانات أو يوجد تضارب في البيانات.",
+        if (reqId.isNotEmpty) "🧾 Request-ID: $reqId",
+      ].join('\n');
+      _toastErr("تعارض", fullMessage, bg: Colors.orange);
+      return null;
+    }
+
+    // 413: الملف كبير (الصور/الفيديو)
+    if (status == 413) {
+      final fullMessage = [
+        "🗂️ الحجم كبير جدًا: $apiMessage",
+        "قلّل دقّة الصور/الفيديو أو عددها ثم أعد المحاولة.",
+        if (reqId.isNotEmpty) "🧾 Request-ID: $reqId",
+      ].join('\n');
+      _toastErr("البيانات كبيرة", fullMessage, bg: Colors.orange);
+      return null;
+    }
+
+    // 429: كثرة الطلبات
+    if (status == 429) {
+      final retryAfter = _anyHeader(response.headers, ['retry-after']);
+      final fullMessage = [
+        "⏱️ تم تجاوز حدّ الطلبات: $apiMessage",
+        if (retryAfter.isNotEmpty) "حاول بعد: $retryAfter ثانية.",
+        if (reqId.isNotEmpty) "🧾 Request-ID: $reqId",
+      ].join('\n');
+      _toastErr("معدل الطلبات", fullMessage, bg: Colors.orange);
+      return null;
+    }
+
+    // 5xx: خطأ خادم
+    if (status >= 500) {
+      final fullMessage = [
+        "🛠️ عطل بالخادم (HTTP $status): $apiMessage",
+        "جرّب لاحقًا، أو تواصل مع الدعم مرفقًا رقم الطلب.",
+        if (reqId.isNotEmpty) "🧾 Request-ID: $reqId",
+      ].join('\n');
+      _toastErr("خطأ خادم", fullMessage);
+      return null;
+    }
+
+    // باقي الأكواد: نعرض الرسالة القادمة من السيرفر قدر الإمكان
+    String details = '';
+    if (errorMap.containsKey('errors')) {
+      final errs = errorMap['errors'] as Map<String, dynamic>;
+      details = errs.entries
+          .map((e) => e.value is List ? '• ${(e.value as List).join(', ')}' : '• ${e.value}')
+          .join('\n');
+    }
     final fullMessage = [
-      "❌ $apiMessage",
-      if (validationMessages.isNotEmpty) "📋 التفاصيل:\n$validationMessages",
+      "❌ $apiMessage (HTTP $status)",
+      if (details.isNotEmpty) "📋 التفاصيل:\n$details",
+      if (reqId.isNotEmpty) "🧾 Request-ID: $reqId",
     ].join('\n');
 
-    Get.snackbar(
-      "خطأ",
-      fullMessage,
-      colorText: Colors.white,
-      backgroundColor: Colors.orange,
-    );
-
+    _toastErr("خطأ", fullMessage, bg: Colors.orange);
     return null;
+
   } catch (e, stack) {
-    print("💥 حدث استثناء غير متوقع: $e");
-    print("📜 Stack trace: $stack");
+    debugPrint("💥 حدث استثناء غير متوقع: $e");
+    debugPrint("📜 Stack trace: $stack");
     Get.snackbar(
       "خطأ غير متوقع",
       "⚡ حدث خطأ غير متوقع أثناء محاولة نشر الإعلان: ${e.toString()}",
@@ -940,8 +1062,18 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
   } finally {
     isSubmitting.value = false;
     isTranslating.value = false;
-    print("🏁 انتهت عملية إرسال الإعلان");
+    debugPrint("🏁 انتهت عملية إرسال الإعلان");
   }
+}
+
+
+// ========================= أدوات مساعدة =========================
+int? _nullableIntFromDynamic(dynamic v) {
+  if (v == null) return null;
+  if (v is int) return v;
+  if (v is double) return v.toInt();
+  if (v is String) return int.tryParse(v);
+  return null;
 }
 
 

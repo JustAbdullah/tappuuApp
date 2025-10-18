@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -7,16 +8,24 @@ import 'package:image_picker/image_picker.dart';
 import '../core/data/model/AdvertiserProfile.dart';
 
 class AdvertiserController extends GetxController {
+  // ================== الحالة ==================
   var loading = false.obs;
   var uploadedImageUrls = "".obs;
   var isSaving = false.obs;
   AdvertiserProfile? originalProfileForEdit;
   bool hasLogoChanged = false;
 
-  final String uploadApiUrl =
-      "https://stayinme.arabiagroup.net/lar_stayInMe/public/api/upload";
+  // API Endpoints
+  static const String _root =
+      "https://stayinme.arabiagroup.net/lar_stayInMe/public/api";
+  final String uploadApiUrl = "$_root/upload";
+  final String baseUrl = "$_root/advertiser-profiles";
 
+  // individual | company
   var accountType = 'individual'.obs;
+
+  // ================== Pick/Upload Logo ==================
+  Rx<File?> logoPath = Rx<File?>(null);
 
   Future<void> pickLogo() async {
     final picker = ImagePicker();
@@ -32,11 +41,6 @@ class AdvertiserController extends GetxController {
     logoPath.value = null;
     uploadedImageUrls.value = "";
     hasLogoChanged = true;
-
-    if (originalProfileForEdit != null) {
-      // originalProfileForEdit!.logo = null;
-    }
-
     update(['logo']);
   }
 
@@ -48,24 +52,19 @@ class AdvertiserController extends GetxController {
         return;
       }
 
-      var request = http.MultipartRequest('POST', Uri.parse(uploadApiUrl));
+      final request = http.MultipartRequest('POST', Uri.parse(uploadApiUrl));
       request.files.add(
-        await http.MultipartFile.fromPath(
-          'images[]',
-          logoPath.value!.path,
-        ),
+        await http.MultipartFile.fromPath('images[]', logoPath.value!.path),
       );
 
-      var response = await request.send();
+      final response = await request.send();
+      final responseData = await response.stream.bytesToString();
+
       if (response.statusCode == 201) {
-        var responseData = await response.stream.bytesToString();
-        var jsonData = json.decode(responseData);
-        uploadedImageUrls.value =
-            (List<String>.from(jsonData['image_urls']).isNotEmpty)
-                ? List<String>.from(jsonData['image_urls']).first
-                : "";
+        final jsonData = json.decode(responseData);
+        final list = List<String>.from(jsonData['image_urls']);
+        uploadedImageUrls.value = list.isNotEmpty ? list.first : "";
       } else {
-        var responseData = await response.stream.bytesToString();
         throw Exception("Failed to upload image: ${response.statusCode} - $responseData");
       }
     } catch (e) {
@@ -75,13 +74,19 @@ class AdvertiserController extends GetxController {
     }
   }
 
-  void setSaving(bool saving) {
-    isSaving.value = saving;
-    update(['button']);
-  }
+  // ================== نصوص الإدخال ==================
+  var businessNameCtrl = TextEditingController();
+  var descriptionCtrl = TextEditingController();
+  var contactPhoneCtrl = TextEditingController();
+  var whatsappPhoneCtrl = TextEditingController();
+  var whatsappCallNumberCtrl = TextEditingController();
 
-  final String baseUrl =
-      "https://stayinme.arabiagroup.net/lar_stayInMe/public/api/advertiser-profiles";
+  // جديد: اسم المالك الظاهر تحت الشركة (وقت الإنشاء فقط)
+  var ownerDisplayNameCtrl = TextEditingController();
+
+  void updateButton() => update(['button']);
+
+  // ================== مصادر API للملف ==================
   var isLoading = false.obs;
   var profiles = <AdvertiserProfile>[].obs;
   var selected = Rxn<AdvertiserProfile>();
@@ -95,61 +100,148 @@ class AdvertiserController extends GetxController {
         profiles.value = data.map((e) => AdvertiserProfile.fromJson(e)).toList();
         update();
       } else {
-        Get.snackbar(
-          'خطأ',
-          'فشل جلب البيانات',
-          snackPosition: SnackPosition.BOTTOM,
-        );
+        Get.snackbar('خطأ', 'فشل جلب البيانات', snackPosition: SnackPosition.BOTTOM);
       }
     } catch (e) {
-      Get.snackbar(
-        'خطأ',
-        'تأكد من اتصال الانترنت',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      Get.snackbar('خطأ', 'تأكد من اتصال الانترنت', snackPosition: SnackPosition.BOTTOM);
     } finally {
       isLoading(false);
     }
   }
 
+  // === إنشاء ملف معلن جديد (يرسل owner_display_name لو النوع شركة) ===
   Future<void> createProfile(AdvertiserProfile profile) async {
     isLoading(true);
     try {
-      final res = await http.post(
-        Uri.parse(baseUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(profile.toJson()),
-      );
+      // 1) بناء جسم الطلب
+      final Map<String, dynamic> bodyMap = profile.toJson();
 
-      if (res.statusCode == 201) {
+      // أرسل رابط الشعار لو متوفر
+      if (uploadedImageUrls.value.isNotEmpty) {
+        bodyMap['logo'] = uploadedImageUrls.value;
+      }
+
+      // لو شركة — نرسل اسم المالك/المدير الظاهر
+      if (accountType.value == 'company') {
+        final ownerName = ownerDisplayNameCtrl.text.trim();
+        if (ownerName.isNotEmpty) {
+          bodyMap['owner_display_name'] = ownerName;
+        }
+      }
+
+      // 2) الطلب مع مهلة
+      final uri = Uri.parse(baseUrl);
+      final res = await http
+          .post(uri, headers: {'Content-Type': 'application/json'}, body: jsonEncode(bodyMap))
+          .timeout(const Duration(seconds: 25));
+
+      // نحاول قراءة الاستجابة
+      final raw = res.body;
+      Map<String, dynamic>? jsonBody;
+      try {
+        jsonBody = raw.isNotEmpty ? jsonDecode(raw) as Map<String, dynamic> : null;
+      } catch (_) {
+        jsonBody = null;
+      }
+
+      // 3) نجاح
+      if (res.statusCode == 201 || res.statusCode == 200) {
         await fetchProfiles(profile.userId);
-
         Get.snackbar(
           'نجاح',
           'تم إنشاء ملف المعلن',
           snackPosition: SnackPosition.BOTTOM,
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
+        );
+        return;
+      }
+
+      // 4) أخطاء تحقق (Laravel 422)
+      if (res.statusCode == 422) {
+        final message = (jsonBody?['message'] as String?) ?? 'بعض الحقول غير صحيحة';
+        final details = _formatValidationErrors(jsonBody?['errors'] as Map<String, dynamic>?);
+
+        Get.snackbar(
+          'الحقول غير صحيحة',
+          '$message\n$details',
+          snackPosition: SnackPosition.BOTTOM,
+          duration: const Duration(seconds: 5),
         );
 
-        await Future.delayed(Duration(seconds: 2));
-        Get.offAllNamed('/home');
-      } else {
-        final body = jsonDecode(res.body);
-        Get.snackbar(
-          'خطأ',
-          body['message'] ?? 'فشل الإنشاء',
-          snackPosition: SnackPosition.BOTTOM,
+        _logHttpError(
+          tag: 'CREATE_PROFILE/VALIDATION',
+          status: res.statusCode,
+          url: uri.toString(),
+          requestBody: bodyMap,
+          responseBody: raw,
         );
+        return;
       }
-    } catch (e) {
+
+      // 5) أي خطأ آخر
+      final serverMsg = (jsonBody?['message'] as String?) ?? 'حدث خطأ غير متوقع';
       Get.snackbar(
-        'خطأ',
-        'تأكد من اتصال الانترنت',
+        'فشل الإنشاء',
+        '(${res.statusCode}) $serverMsg',
         snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 4),
       );
+
+      _logHttpError(
+        tag: 'CREATE_PROFILE/ERROR',
+        status: res.statusCode,
+        url: uri.toString(),
+        requestBody: bodyMap,
+        responseBody: raw,
+      );
+    } on SocketException catch (e) {
+      Get.snackbar('مشكلة اتصال', 'تحقق من الإنترنت أو الخادم.', snackPosition: SnackPosition.BOTTOM);
+      debugPrint('[CREATE_PROFILE/NETWORK] SocketException: $e');
+    } on TimeoutException catch (e) {
+      Get.snackbar('انتهت المهلة', 'الخادم لم يستجب في الوقت المناسب.', snackPosition: SnackPosition.BOTTOM);
+      debugPrint('[CREATE_PROFILE/TIMEOUT] $e');
+    } on FormatException catch (e) {
+      Get.snackbar('استجابة غير مفهومة', 'الخادم أعاد صيغة غير متوقعة.', snackPosition: SnackPosition.BOTTOM);
+      debugPrint('[CREATE_PROFILE/FORMAT] $e');
+    } catch (e, st) {
+      Get.snackbar('خطأ غير متوقع', '$e', snackPosition: SnackPosition.BOTTOM);
+      debugPrint('[CREATE_PROFILE/UNCAUGHT] $e\n$st');
     } finally {
       isLoading(false);
     }
+  }
+
+  /// يحوّل أخطاء Laravel 422 إلى نقاط مرتبة للمستخدم
+  String _formatValidationErrors(Map<String, dynamic>? errors) {
+    if (errors == null || errors.isEmpty) return '';
+    final buf = StringBuffer('\n');
+    errors.forEach((field, msgs) {
+      if (msgs is List && msgs.isNotEmpty) {
+        buf.writeln('• $field: ${msgs.first}');
+      } else if (msgs is String && msgs.isNotEmpty) {
+        buf.writeln('• $field: $msgs');
+      }
+    });
+    return buf.toString();
+  }
+
+  /// طباعة احترافية لكل ما يلزمك وقت التطوير
+  void _logHttpError({
+    required String tag,
+    required int status,
+    required String url,
+    required Map<String, dynamic> requestBody,
+    required String responseBody,
+  }) {
+    debugPrint('''
+[$tag]
+→ URL: $url
+→ Status: $status
+→ Request JSON:
+${const JsonEncoder.withIndent('  ').convert(requestBody)}
+→ Response:
+$responseBody
+''');
   }
 
   Future<void> updateProfile(AdvertiserProfile updatedProfile) async {
@@ -157,33 +249,30 @@ class AdvertiserController extends GetxController {
     try {
       final Map<String, dynamic> updatedData = {};
 
-      if (updatedProfile.name != originalProfileForEdit?.name)
+      if (updatedProfile.name != originalProfileForEdit?.name) {
         updatedData['name'] = updatedProfile.name;
-
-      if (updatedProfile.description != originalProfileForEdit?.description)
+      }
+      if (updatedProfile.description != originalProfileForEdit?.description) {
         updatedData['description'] = updatedProfile.description;
-
-      if (updatedProfile.contactPhone != originalProfileForEdit?.contactPhone)
+      }
+      if (updatedProfile.contactPhone != originalProfileForEdit?.contactPhone) {
         updatedData['contact_phone'] = updatedProfile.contactPhone;
-
-      if (updatedProfile.whatsappPhone != originalProfileForEdit?.whatsappPhone)
+      }
+      if (updatedProfile.whatsappPhone != originalProfileForEdit?.whatsappPhone) {
         updatedData['whatsapp_phone'] = updatedProfile.whatsappPhone;
-
-      if (updatedProfile.whatsappCallNumber != originalProfileForEdit?.whatsappCallNumber)
+      }
+      if (updatedProfile.whatsappCallNumber != originalProfileForEdit?.whatsappCallNumber) {
         updatedData['whatsapp_call_number'] = updatedProfile.whatsappCallNumber;
-
-      if (hasLogoChanged) updatedData['logo'] = updatedProfile.logo;
-
+      }
+      if (hasLogoChanged) {
+        updatedData['logo'] = updatedProfile.logo;
+      }
       if (updatedProfile.accountType != originalProfileForEdit?.accountType) {
         updatedData['account_type'] = updatedProfile.accountType ?? 'individual';
       }
 
       if (updatedData.isEmpty) {
-        Get.snackbar(
-          'تنبيه',
-          'لم تقم بأي تغييرات',
-          snackPosition: SnackPosition.BOTTOM,
-        );
+        Get.snackbar('تنبيه', 'لم تقم بأي تغييرات', snackPosition: SnackPosition.BOTTOM);
         isLoading(false);
         return;
       }
@@ -196,8 +285,7 @@ class AdvertiserController extends GetxController {
 
       if (res.statusCode == 200) {
         final responseData = jsonDecode(res.body);
-        final updatedProfileResponse =
-            AdvertiserProfile.fromJson(responseData['profile']);
+        final updatedProfileResponse = AdvertiserProfile.fromJson(responseData['profile']);
 
         final index = profiles.indexWhere((p) => p.id == originalProfileForEdit!.id);
         if (index != -1) {
@@ -208,45 +296,88 @@ class AdvertiserController extends GetxController {
           selected.value = updatedProfileResponse;
         }
 
-        Get.snackbar(
-          'نجاح',
-          'تم تحديث ملف المعلن بنجاح',
-          snackPosition: SnackPosition.BOTTOM,
-          duration: Duration(seconds: 2),
-        );
-
-        await Future.delayed(Duration(seconds: 2));
-        Get.back();
+        Get.snackbar('نجاح', 'تم تحديث ملف المعلن بنجاح',
+            snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 2));
       } else {
         final body = jsonDecode(res.body);
-        Get.snackbar(
-          'خطأ',
-          body['message'] ?? 'فشل التحديث',
-          snackPosition: SnackPosition.BOTTOM,
-        );
+        Get.snackbar('خطأ', body['message'] ?? 'فشل التحديث', snackPosition: SnackPosition.BOTTOM);
       }
     } catch (e) {
-      Get.snackbar(
-        'خطأ',
-        'تأكد من اتصال الانترنت: $e',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      Get.snackbar('خطأ', 'تأكد من اتصال الانترنت: $e', snackPosition: SnackPosition.BOTTOM);
     } finally {
       isLoading(false);
     }
   }
 
-  Rx<File?> logoPath = Rx<File?>(null);
-  var businessNameCtrl = TextEditingController();
-  var descriptionCtrl = TextEditingController();
-  var contactPhoneCtrl = TextEditingController();
-  var whatsappPhoneCtrl = TextEditingController();
-  var whatsappCallNumberCtrl = TextEditingController();
+  // ================== دوال العضو داخل الشركة (تعديل/مغادرة) ==================
 
-  void updateButton() {
-    update(['button']);
+  /// تعديل بياناتي كعضو داخل شركة (غير المالك لا يستطيع تغيير role/status)
+  Future<void> updateMyCompanyMembership({
+    required int companyId,
+    required int memberId,
+    required int actorUserId,
+    required String displayName,
+    String? contactPhone,
+    String? whatsappPhone,
+    String? whatsappCallNumber,
+  }) async {
+    try {
+      final uri = Uri.parse('$_root/companies/$companyId/members/$memberId');
+      final res = await http.put(
+        uri,
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {
+          'actor_user_id': actorUserId.toString(),
+          'display_name': displayName,
+          if (contactPhone != null) 'contact_phone': contactPhone,
+          if (whatsappPhone != null) 'whatsapp_phone': whatsappPhone,
+          if (whatsappCallNumber != null) 'whatsapp_call_number': whatsappCallNumber,
+        },
+      );
+
+      if (res.statusCode == 200) {
+        Get.snackbar('تم الحفظ', 'تم تحديث بيانات العضو',
+            snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 2));
+      } else {
+        final body = _safeDecode(res.body);
+        Get.snackbar('تعذر التحديث', body['message']?.toString() ?? res.body,
+            snackPosition: SnackPosition.BOTTOM);
+      }
+    } catch (e) {
+      Get.snackbar('خطأ', e.toString(), snackPosition: SnackPosition.BOTTOM);
+    }
   }
 
+  /// مغادرة الشركة (status=removed) — غير مسموح بحذف المالك
+  Future<void> removeMyCompanyMembership({
+    required int companyId,
+    required int memberId,
+    required int actorUserId,
+  }) async {
+    try {
+      final uri = Uri.parse('$_root/companies/$companyId/members/$memberId');
+      final res = await http.delete(
+        uri,
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {
+          'actor_user_id': actorUserId.toString(),
+        },
+      );
+
+      if (res.statusCode == 200) {
+        Get.snackbar('تم', 'غادرت الشركة بنجاح',
+            snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 2));
+      } else {
+        final body = _safeDecode(res.body);
+        Get.snackbar('تعذر الإجراء', body['message']?.toString() ?? res.body,
+            snackPosition: SnackPosition.BOTTOM);
+      }
+    } catch (e) {
+      Get.snackbar('خطأ', e.toString(), snackPosition: SnackPosition.BOTTOM);
+    }
+  }
+
+  // ================== دورة حياة ==================
   @override
   void onClose() {
     resetSelection();
@@ -255,6 +386,7 @@ class AdvertiserController extends GetxController {
     contactPhoneCtrl.dispose();
     whatsappPhoneCtrl.dispose();
     whatsappCallNumberCtrl.dispose();
+    ownerDisplayNameCtrl.dispose();
     super.onClose();
   }
 
@@ -269,6 +401,9 @@ class AdvertiserController extends GetxController {
     hasLogoChanged = false;
     logoPath.value = null;
     accountType.value = profile.accountType ?? 'individual';
+
+    // في وضع التعديل لا نستخدم owner_display_name (خاص بالإنشاء للشركات)
+    ownerDisplayNameCtrl.clear();
   }
 
   void resetSelection() {
@@ -278,8 +413,10 @@ class AdvertiserController extends GetxController {
     uploadedImageUrls.value = "";
     logoPath.value = null;
     accountType.value = 'individual';
+    ownerDisplayNameCtrl.clear();
   }
 
+  // ================== حفظ (ينادي create أو update) ==================
   Future<void> saveProfileChanges(int userId) async {
     if (isSaving.value) return;
     isSaving.value = true;
@@ -305,22 +442,21 @@ class AdvertiserController extends GetxController {
       );
 
       if (originalProfileForEdit == null) {
+        // إنشاء جديد
         await createProfile(updatedProfile);
       } else {
+        // تحديث
         await updateProfile(updatedProfile);
       }
     } catch (e) {
-      Get.snackbar(
-        'خطأ',
-        'حدث خطأ أثناء الحفظ: $e',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      Get.snackbar('خطأ', 'حدث خطأ أثناء الحفظ: $e', snackPosition: SnackPosition.BOTTOM);
     } finally {
       isSaving.value = false;
       update(['button']);
     }
   }
 
+  // ================== حذف ==================
   var isDeletingProfile = false.obs;
 
   Future<void> deleteProfile(int profileId) async {
@@ -330,11 +466,7 @@ class AdvertiserController extends GetxController {
       final response = await http.delete(uri);
 
       if (response.statusCode == 200) {
-        Get.snackbar(
-          'نجاح',
-          'تم حذف ملف المعلن بنجاح',
-          snackPosition: SnackPosition.BOTTOM,
-        );
+        Get.snackbar('نجاح', 'تم حذف ملف المعلن بنجاح', snackPosition: SnackPosition.BOTTOM);
         profiles.removeWhere((p) => p.id == profileId);
         if (selected.value?.id == profileId) {
           selected.value = null;
@@ -343,24 +475,32 @@ class AdvertiserController extends GetxController {
         update();
       } else {
         final body = json.decode(response.body);
-        String msg = body['message'] ?? 'فشل في حذف ملف المعلن';
+        final msg = body['message'] ?? 'فشل في حذف ملف المعلن';
         throw Exception(msg);
       }
     } catch (e) {
-      Get.snackbar(
-        'خطأ',
-        e.toString(),
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      Get.snackbar('خطأ', e.toString(), snackPosition: SnackPosition.BOTTOM);
     } finally {
       isDeletingProfile.value = false;
       update();
     }
   }
 
+  // ================== نوع الحساب ==================
   void setAccountType(String type) {
     if (type != 'individual' && type != 'company') return;
     accountType.value = type;
-    update(['account_type']);
+    update(['account_type', 'button']);
+  }
+
+  // ================== أدوات مساعدة ==================
+  Map<String, dynamic> _safeDecode(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return {'raw': decoded};
+    } catch (_) {
+      return {'raw': body};
+    }
   }
 }

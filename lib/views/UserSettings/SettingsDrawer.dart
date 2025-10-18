@@ -14,7 +14,9 @@ import '../MyConversationsScreen/MyConversationsScreen.dart';
 import '../UserAds/UserAdsScreen.dart';
 import 'FavoriteGroupsPage/FavoriteGroupsPage.dart';
 import 'FavoriteSellersPage/FavoriteSellersPage.dart';
+import 'MyCompanyInvitesScreen/MyCompanyInvitesScreen.dart';
 import 'MyReportsScreen/MyReportsScreen.dart';
+import 'SendCompanyInvitesScreen/SendCompanyInvitesScreen.dart';
 import 'TransferProofsPage/TransferProofsPage.dart';
 import 'UserWalletsPage/UserWalletsPage.dart' ;
 import 'itemsUserSettings/AdvertiserProfilesScreen.dart';
@@ -126,11 +128,21 @@ class SettingsDrawer extends StatelessWidget {
                           title: 'حسابي'.tr,
                           icon: Icons.person_outline,
                           items: [
+
+                            
                             _buildItem(
                               title: 'معلوماتي'.tr,
                               onTap: () {
                                 Get.back();
                                 Get.to(() => UserInfoPage());
+                              },
+
+                            ),
+                               _buildItem(
+                              title: 'الرسائل'.tr,
+                              onTap: () {
+                                Get.back();
+                                Get.to(() => ConversationsListScreen());
                               },
                             ),
                             _buildItem(
@@ -154,13 +166,7 @@ class SettingsDrawer extends StatelessWidget {
                                 Get.to(() => ResetPasswordScreen());
                               },
                             ),
-                            _buildItem(
-                              title: 'المحادثات'.tr,
-                              onTap: () {
-                                Get.back();
-                                Get.to(() => ConversationsListScreen());
-                              },
-                            ),
+                         
                             _buildItem(
                               title: 'بلاغاتي'.tr,
                               onTap: () {
@@ -194,6 +200,18 @@ class SettingsDrawer extends StatelessWidget {
                               onTap: () {
                                 Get.back();
                                 Get.to(() => AdvertiserDataScreen());
+                              },
+                            ), _buildItem(
+                              title: 'الشركات والاعضاء'.tr,
+                              onTap: () {
+                                Get.back();
+                                Get.to(() => SendCompanyInvitesScreen());
+                              },
+                            ), _buildItem(
+                              title: 'دعوات الانضمام'.tr,
+                              onTap: () {
+                                Get.back();
+                                Get.to(() => MyCompanyInvitesScreen());
                               },
                             ),
                           ],

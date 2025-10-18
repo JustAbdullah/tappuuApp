@@ -38,7 +38,7 @@ class _LoadingState extends State<Loading> {
 
     return Obx(() {
       // اختر لون الخلفية: إن وُجد في الكنترولر استخدمه، وإلا الافتراضي
-      final bgColor = waiting.backgroundColor.value ?? AppColors.onPrimary;
+      final bgColor = waiting.backgroundColor.value ?? AppColors.wait;
 
       // اختر صورة شاشة الانتظار من الكنترولر، وإلا استخدم شعار التطبيق المخزن
       final waitingImage = waiting.imageUrl.value;
@@ -70,10 +70,10 @@ class _LoadingState extends State<Loading> {
             height: 150.h,
             fit: BoxFit.contain,
             errorBuilder: (_, __, ___) =>
-                Image.asset(ImagesPath.logo, width: double.infinity, height: 150.h),
+                Image.asset(ImagesPath.wait, width: double.infinity, height: 150.h),
           );
         } else {
-          return Image.asset(ImagesPath.logo, width: double.infinity, height: 150.h);
+          return Image.asset(ImagesPath.wait, width: double.infinity, height: 150.h);
         }
       },
     ),
@@ -88,11 +88,11 @@ else
           height: 150.h,
           fit: BoxFit.contain,
           errorBuilder: (_, __, ___) =>
-              Image.asset(ImagesPath.logo, width: double.infinity, height: 150.h),
+              Image.asset(ImagesPath.wait, width: double.infinity, height: 150.h),
         )
       else
         Image.asset(
-          ImagesPath.logo,
+          ImagesPath.wait,
           width: double.infinity,
           height: 150.h,
           fit: BoxFit.contain,

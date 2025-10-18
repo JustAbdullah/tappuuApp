@@ -20,4 +20,6 @@ class ImagesPath {
   static const String Favorites = "$RootPath/Favorites.png";
   static const String history = "$RootPath/history.png";
   static const String lists = "$RootPath/lists.png";
+    static const String wait = "$RootPath/screenWait.jpg";
+
 }
