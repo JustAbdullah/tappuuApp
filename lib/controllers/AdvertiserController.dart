@@ -310,8 +310,10 @@ $responseBody
   }
 
   // ================== دوال العضو داخل الشركة (تعديل/مغادرة) ==================
-
   /// تعديل بياناتي كعضو داخل شركة (غير المالك لا يستطيع تغيير role/status)
+  /// ملاحظة:
+  /// - avatarUrl: إن مرّرت رابطًا سيتم تحديثه.
+  ///   ولو مررته كسلسلة فارغة '' سيتم مسح الصورة من العضو.
   Future<void> updateMyCompanyMembership({
     required int companyId,
     required int memberId,
@@ -320,28 +322,42 @@ $responseBody
     String? contactPhone,
     String? whatsappPhone,
     String? whatsappCallNumber,
+    String? avatarUrl, // NEW
   }) async {
     try {
       final uri = Uri.parse('$_root/companies/$companyId/members/$memberId');
+
+      // جسم الطلب form-encoded
+      final body = <String, String>{
+        'actor_user_id': actorUserId.toString(),
+        'display_name': displayName,
+        if (contactPhone != null) 'contact_phone': contactPhone,
+        if (whatsappPhone != null) 'whatsapp_phone': whatsappPhone,
+        if (whatsappCallNumber != null) 'whatsapp_call_number': whatsappCallNumber,
+        // لو null ما نرسل المفتاح، لو '' نرسله فاضي لمسح الصورة، ولو رابط نرسله للتحديث
+        if (avatarUrl != null) 'avatar_url': avatarUrl,
+      };
+
       final res = await http.put(
         uri,
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: {
-          'actor_user_id': actorUserId.toString(),
-          'display_name': displayName,
-          if (contactPhone != null) 'contact_phone': contactPhone,
-          if (whatsappPhone != null) 'whatsapp_phone': whatsappPhone,
-          if (whatsappCallNumber != null) 'whatsapp_call_number': whatsappCallNumber,
-        },
+        body: body,
       );
 
       if (res.statusCode == 200) {
-        Get.snackbar('تم الحفظ', 'تم تحديث بيانات العضو',
-            snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 2));
+        Get.snackbar(
+          'تم الحفظ',
+          'تم تحديث بيانات العضو',
+          snackPosition: SnackPosition.BOTTOM,
+          duration: const Duration(seconds: 2),
+        );
       } else {
-        final body = _safeDecode(res.body);
-        Get.snackbar('تعذر التحديث', body['message']?.toString() ?? res.body,
-            snackPosition: SnackPosition.BOTTOM);
+        final m = _safeDecode(res.body);
+        Get.snackbar(
+          'تعذر التحديث',
+          m['message']?.toString() ?? res.body,
+          snackPosition: SnackPosition.BOTTOM,
+        );
       }
     } catch (e) {
       Get.snackbar('خطأ', e.toString(), snackPosition: SnackPosition.BOTTOM);

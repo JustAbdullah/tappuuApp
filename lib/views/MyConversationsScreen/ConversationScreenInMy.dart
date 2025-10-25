@@ -46,10 +46,14 @@ class ContactContext {
   final String? companyName;
   final String? memberName;
   final String? personName;
+
   // الأرقام التي ستُعرض فعلياً للمستخدم
   final String? primaryTel;
   final String? primaryWaChat;
   final String? primaryWaCall;
+
+  // NEW: رابط الصورة المعروضة في الشريط والشيت (عضو إن وجد، وإلا شعار المعلن)
+  final String? avatarUrl;
 
   ContactContext({
     required this.mode,
@@ -59,6 +63,7 @@ class ContactContext {
     this.primaryTel,
     this.primaryWaChat,
     this.primaryWaCall,
+    this.avatarUrl, // NEW
   });
 }
 
@@ -280,6 +285,8 @@ class _ConversationScreenInMyState extends State<ConversationScreenInMy> {
               advertiserTelUrl: old.advertiserTelUrl,
               advertiserLatitude: old.advertiserLatitude,
               advertiserLongitude: old.advertiserLongitude,
+              // ملاحظة: لو عندك adCompanyMember بالرسائل سيبقى كما هو
+              adCompanyMember: old.adCompanyMember,
             );
           }
         }
@@ -535,43 +542,44 @@ class _ConversationScreenInMyState extends State<ConversationScreenInMy> {
       }
     }
   }
-Future<void> _confirmAndDeleteMessage(Message message) async {
-  final user = _loading_controller_user();
-  if (user == null) return;
 
-  // تأكيد ملكية الرسالة
-  final isMine = message.senderId == (user.id);
-  if (!isMine) {
-    Get.snackbar(
-      'تنبيه',
-      'لا يمكنك حذف رسالة ليست لك',
-      backgroundColor: Colors.orange,
-      colorText: Colors.white,
-    );
-    return;
-  }
+  Future<void> _confirmAndDeleteMessage(Message message) async {
+    final user = _loading_controller_user();
+    if (user == null) return;
 
-  // تنفيذ الحذف
-  final ok = await _chatController.deleteMessage(message.id);
-  if (ok) {
-    if (!mounted) return;
-    setState(() {}); // لتحديث الواجهة
-    Get.snackbar(
-      'تم',
-      'تم حذف الرسالة',
-      backgroundColor: Colors.green,
-      colorText: Colors.white,
-    );
-    _scrollToBottom();
-  } else {
-    Get.snackbar(
-      'خطأ',
-      'فشل حذف الرسالة',
-      backgroundColor: Colors.red,
-      colorText: Colors.white,
-    );
+    // تأكيد ملكية الرسالة
+    final isMine = message.senderId == (user.id);
+    if (!isMine) {
+      Get.snackbar(
+        'تنبيه',
+        'لا يمكنك حذف رسالة ليست لك',
+        backgroundColor: Colors.orange,
+        colorText: Colors.white,
+      );
+      return;
+    }
+
+    // تنفيذ الحذف
+    final ok = await _chatController.deleteMessage(message.id);
+    if (ok) {
+      if (!mounted) return;
+      setState(() {}); // لتحديث الواجهة
+      Get.snackbar(
+        'تم',
+        'تم حذف الرسالة',
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+      );
+      _scrollToBottom();
+    } else {
+      Get.snackbar(
+        'خطأ',
+        'فشل حذف الرسالة',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
   }
-}
 
   Future<void> _ensureMessageDuration(Message message) async {
     if (_messageDurations.containsKey(message.id)) return;
@@ -616,7 +624,7 @@ Future<void> _confirmAndDeleteMessage(Message message) async {
   }
 
   // =======================
-  // منطق تحديد جهة الاتصال المعروضة
+  // منطق تحديد جهة الاتصال المعروضة + صورة العرض
   // =======================
   ContactContext _resolveContactContext() {
     final adv = widget.advertiser;
@@ -632,7 +640,7 @@ Future<void> _confirmAndDeleteMessage(Message message) async {
     final accountType = adv?.accountType?.toLowerCase().trim();
     final isCompany = (accountType == 'company' || accountType == 'business' || member != null);
 
-    // شركة + عضو: أرقام "العضو" فقط
+    // شركة + عضو: أرقام "العضو" فقط + صورة العضو
     if (isCompany && member != null) {
       return ContactContext(
         mode: ContactMode.companyWithMember,
@@ -641,10 +649,11 @@ Future<void> _confirmAndDeleteMessage(Message message) async {
         primaryTel: member.contactPhone,
         primaryWaChat: member.whatsappPhone,
         primaryWaCall: member.whatsappCallNumber,
+        avatarUrl: member.avatarUrl ?? adv?.logo, // NEW: صورة العضو أولًا ثم شعار الشركة كفولباك
       );
     }
 
-    // شركة بدون عضو: fallback لأرقام الشركة
+    // شركة بدون عضو: fallback لأرقام الشركة + شعار الشركة
     if (isCompany && member == null) {
       return ContactContext(
         mode: ContactMode.companyOnly,
@@ -652,18 +661,46 @@ Future<void> _confirmAndDeleteMessage(Message message) async {
         primaryTel: adv?.contactPhone,
         primaryWaChat: adv?.whatsappPhone,
         primaryWaCall: adv?.whatsappCallNumber,
+        avatarUrl: adv?.logo, // NEW
       );
     }
 
-    // حساب فردي: اسم الشخص + أرقام الشخص
+    // حساب فردي: اسم الشخص + أرقام الشخص + صورته/شعاره
     return ContactContext(
       mode: ContactMode.individual,
       personName: adv?.name,
       primaryTel: adv?.contactPhone,
       primaryWaChat: adv?.whatsappPhone,
       primaryWaCall: adv?.whatsappCallNumber,
+      avatarUrl: adv?.logo, // NEW
     );
   }
+
+  // ====== عنصر صورة موحّد ======
+  Widget _avatarWidget(String? url, {double size = 36}) {
+    if (url == null || url.trim().isEmpty) {
+      return CircleAvatar(
+        radius: size / 2,
+        backgroundColor: AppColors.primary.withOpacity(.12),
+        child: Icon(Icons.person, color: AppColors.primary, size: size * .55),
+      );
+    }
+    return CircleAvatar(
+      radius: size / 2,
+      backgroundColor: AppColors.primary.withOpacity(.08),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(size / 2),
+        child: Image.network(
+          url,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Icon(Icons.person, color: AppColors.primary, size: size * .55),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDarkMode = _theme_controller_value();
@@ -790,14 +827,17 @@ Future<void> _confirmAndDeleteMessage(Message message) async {
               padding: EdgeInsets.all(4.w),
               child: InkWell(onTap: () => _scaffoldKey.currentState?.openDrawer(), child: Icon(Icons.menu, color: AppColors.onPrimary, size: 22.w)),
             ),
-            SizedBox(width: 12.w),
+           // SizedBox(width: 12.w),
+            // NEW: أفاتار في الترويسة
+           // _avatarWidget(ctx.avatarUrl, size: 36.w),
+            SizedBox(width: 10.w),
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               SizedBox(
-                width: 200.w,
+                width: 170.w,
                 child: Text(
                   titleText,
                   style: TextStyle(color: AppColors.onPrimary, fontFamily: AppTextStyles.appFontFamily, fontSize: AppTextStyles.medium, fontWeight: FontWeight.bold),
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -1194,7 +1234,8 @@ Future<void> _confirmAndDeleteMessage(Message message) async {
       ]),
     ]);
   }
-  // ========= القائمة الجانبية للتواصل (تعرض أرقام الشخص فقط لو شركة) =========
+
+  // ========= القائمة الجانبية للتواصل (تعرض أرقام الشخص فقط لو شركة) + صورة العضو/الشركة =========
   void _openContactSideSheet() {
     final ctx = _resolveContactContext();
     final isDark = _theme_controller_value();
@@ -1232,6 +1273,37 @@ Future<void> _confirmAndDeleteMessage(Message message) async {
                         children: [
                           Expanded(child: Text('التواصل', style: titleStyle)),
                           IconButton(onPressed: () => Navigator.of(context).maybePop(), icon: const Icon(Icons.close)),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+
+                    // NEW: هيدر بصورة العضو/الشركة
+                    Padding(
+                      padding: EdgeInsets.only(top: 14.h, left: 16.w, right: 16.w, bottom: 6.h),
+                      child: Row(
+                        children: [
+                          _avatarWidget(ctx.avatarUrl, size: 56.w),
+                          SizedBox(width: 12.w),
+                          Expanded(
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(
+                                ctx.mode == ContactMode.individual
+                                    ? (ctx.personName ?? '-')
+                                    : (ctx.companyName ?? '-'),
+                                style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontWeight: FontWeight.w800, fontSize: 16.sp),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (ctx.mode == ContactMode.companyWithMember && (ctx.memberName ?? '').isNotEmpty)
+                                Text(
+                                  ctx.memberName!,
+                                  style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontSize: 12.sp, color: AppColors.textSecondary(isDark)),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ]),
+                          ),
                         ],
                       ),
                     ),
@@ -1471,7 +1543,7 @@ Future<void> _confirmAndDeleteMessage(Message message) async {
     final read = message.isRead == true;
     return Padding(
       padding: EdgeInsetsDirectional.only(start: 6.w),
-      child: Icon(read ? Icons.done_all : Icons.check, size: 16.sp, color: read ?Color(0xFF34B7F1) : _receiptGrey),
+      child: Icon(read ? Icons.done_all : Icons.check, size: 16.sp, color: read ? Color(0xFF34B7F1) : _receiptGrey),
     );
   }
 

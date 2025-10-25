@@ -18,10 +18,8 @@ class Loading extends StatefulWidget {
 }
 
 class _LoadingState extends State<Loading> {
-  // LoadingController الموجود عندك
   final LoadingController loading = Get.put(LoadingController());
 
-  // نتأكد وجود WaitingScreenController (إذا موجود يسترجع، وإلا ينشئ)
   final WaitingScreenController waiting =
       Get.put(WaitingScreenController(), permanent: true);
 
@@ -29,7 +27,6 @@ class _LoadingState extends State<Loading> {
   void initState() {
     super.initState();
     loading.loadUserData();
-    // لا حاجة لاستدعاء waiting.loadWaitingScreen() هنا لأن onInit في الكنترولر يتكفل
   }
 
   @override
@@ -37,10 +34,8 @@ class _LoadingState extends State<Loading> {
     final appServices = Get.find<AppServices>();
 
     return Obx(() {
-      // اختر لون الخلفية: إن وُجد في الكنترولر استخدمه، وإلا الافتراضي
       final bgColor = waiting.backgroundColor.value ?? AppColors.wait;
 
-      // اختر صورة شاشة الانتظار من الكنترولر، وإلا استخدم شعار التطبيق المخزن
       final waitingImage = waiting.imageUrl.value;
       final logoUrl = appServices.getStoredAppLogoUrl();
 
@@ -70,10 +65,10 @@ class _LoadingState extends State<Loading> {
             height: 150.h,
             fit: BoxFit.contain,
             errorBuilder: (_, __, ___) =>
-                Image.asset(ImagesPath.wait, width: double.infinity, height: 150.h),
+                Image.asset(ImagesPath.wait, width: double.infinity, fit: BoxFit.cover,),
           );
         } else {
-          return Image.asset(ImagesPath.wait, width: double.infinity, height: 150.h);
+          return Image.asset(ImagesPath.wait, width: double.infinity, fit: BoxFit.cover,);
         }
       },
     ),
@@ -94,8 +89,7 @@ else
         Image.asset(
           ImagesPath.wait,
           width: double.infinity,
-          height: 150.h,
-          fit: BoxFit.contain,
+          fit: BoxFit.cover,
         ),
     ],
   ),
@@ -106,8 +100,6 @@ else
 
                 SizedBox(height: 20.h),
 
-                // للمساعدة في التصحيح: عرض hex اللون إن أردت (خفي عادة)
-                // Text(waiting.colorHex.value, style: TextStyle(fontSize: 12)),
               ],
             ),
           ),

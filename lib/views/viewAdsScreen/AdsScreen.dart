@@ -122,7 +122,7 @@ void initState() {
   _fetchAdsData();
 
   // تهيئة الصوت بشكل منفصل وغير متزامن
- _initializeSpeech();
+ //_initializeSpeech();
 
   // العمليات المتعلقة بالواجهة بعد اكتمال البناء
   WidgetsBinding.instance.addPostFrameCallback((_) {

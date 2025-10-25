@@ -327,27 +327,7 @@ class _ConversationsListScreenState extends State<ConversationsListScreen> {
                         ),
 
                       // شارة "اليوم" لو المحادثة حديثة ولا يوجد غير مقروء
-                      if (!hasUnread && _isRecent(conversation.lastMessageAt))
-                        Container(
-                          margin: EdgeInsets.only(left: 8.w),
-                          padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(10.r),
-                            border: Border.all(
-                              color: AppColors.primary.withOpacity(0.6),
-                              width: 1,
-                            ),
-                          ),
-                          child: Text(
-                            'اليوم',
-                            style: TextStyle(
-                              fontFamily: AppTextStyles.appFontFamily,
-                              fontSize: AppTextStyles.small,
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
+                     
                     ],
                   ),
                 ],

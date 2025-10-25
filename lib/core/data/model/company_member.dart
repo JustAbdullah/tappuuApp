@@ -11,8 +11,11 @@ class CompanyMember {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
+  // جديد: صورة العضو
+  final String? avatarUrl;
+
   // علاقات اختيارية للعرض
-  final String? userEmail; // لو رجعت من API مع user
+  final String? userEmail;   // لو رجعت من API مع user
   final String? companyName; // لو رجعت من API مع company
 
   CompanyMember({
@@ -27,6 +30,7 @@ class CompanyMember {
     this.whatsappCallNumber,
     this.createdAt,
     this.updatedAt,
+    this.avatarUrl,
     this.userEmail,
     this.companyName,
   });
@@ -44,6 +48,7 @@ class CompanyMember {
       status: j['status'] as String,
       createdAt: j['created_at'] != null ? DateTime.tryParse(j['created_at']) : null,
       updatedAt: j['updated_at'] != null ? DateTime.tryParse(j['updated_at']) : null,
+      avatarUrl: j['avatar_url'] as String?,
       userEmail: j['user'] != null ? j['user']['email'] as String? : j['user_email'] as String?,
       companyName: j['company'] != null ? j['company']['name'] as String? : j['company_name'] as String?,
     );
@@ -60,6 +65,7 @@ class CompanyMember {
       'whatsapp_phone': whatsappPhone,
       'whatsapp_call_number': whatsappCallNumber,
       'status': status,
+      'avatar_url': avatarUrl,
     };
   }
 }

@@ -1,7 +1,7 @@
 name: tappuu_app
 description: "A new Flutter project."
 
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+publish_to: 'none'
 
 version: 1.0.0+1
 
@@ -16,7 +16,7 @@ dependencies:
   get: ^4.6.1
   intl: ^0.19.0
   http: ^1.0.0
-  cached_network_image: ^3.2.0 
+  cached_network_image: ^3.2.0
   shared_preferences: ^2.0.15
   path: ^1.8.0
   google_fonts: ^6.2.0
@@ -30,7 +30,7 @@ dependencies:
   flutter_rating_bar: ^4.0.1
   url_launcher: ^6.1.5
   material_design_icons_flutter: ^5.0.6595
-  flutter_svg: ^2.0.5 
+  flutter_svg: ^2.0.5
   firebase_core: ^2.18.0
   firebase_auth: ^4.12.1
   firebase_messaging: ^14.7.0
@@ -41,33 +41,29 @@ dependencies:
   photo_view: ^0.15.0
   shimmer: ^3.0.0
   dotted_border: ^2.0.0
-  file_picker: ^5.2.3         # لاختيار ملفات من الجهاز
-  video_player: ^2.5.1        # لمعاينة الفيديوهات
+  file_picker: ^5.2.3
+  video_player: ^2.5.1
   chewie: ^1.5.0
   googleapis_auth: ^1.5.0
   speech_to_text: ^6.6.0
   mic_stream_recorder: ^1.1.2
   audioplayers: ^5.0.0
 
-
-
-
 dependency_overrides:
   geolocator_android: 4.6.1
-
-
-
+  # ثبّت النسخ المتوافقة (بدون ^) علشان ما يسحب 1.4.0 ويسبب خطأ flutter{}
+  package_info_plus: 8.0.2
+  wakelock_plus: 1.2.8
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
   flutter_lints: ^2.0.0
   flutter_launcher_icons: ^0.12.0
-  flutter_native_splash: ^2.4.4 # قم بتحديث هذا السطر
+  flutter_native_splash: ^2.4.4
 
 flutter_native_splash:
-      color: "#FFC813"  
+  color: "#FFC813"
 
 flutter_icons:
   android: "launcher_icon"
@@ -76,17 +72,14 @@ flutter_icons:
   adaptive_icon_background: "#FFC813"
   adaptive_icon_foreground: "assets/images/play_store_512.png"
   min_sdk_android: 21
-  
 
 flutter:
   uses-material-design: true
-
   assets:
-   - assets/
-   - assets/fonts/
-   - assets/images/
-   - assets/icon/
-
+    - assets/
+    - assets/fonts/
+    - assets/images/
+    - assets/icon/
   fonts:
     - family: Tajawal
       fonts:

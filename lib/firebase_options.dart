@@ -50,20 +50,22 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCNvTqN18riHuLpNZ4MwF7pX6POuYF4qjM',
-    appId: '1:6952523205:android:f9963977ed3f8ae88227ac',
-    messagingSenderId: '6952523205',
-    projectId: 'tappuu-7c425',
-    storageBucket: 'tappuu-7c425.firebasestorage.app',
+    apiKey: 'AIzaSyAf7w2O8iDB4c-91aDNnuSnFA2FXYzcqrA',
+    appId: '1:361185904079:android:a5a2109459e1af7bf87eba',
+    messagingSenderId: '361185904079',
+    projectId: 'stayinme-1af7d',
+    storageBucket: 'stayinme-1af7d.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAnP3N4gv_oXU_BiiDdlWmbwmBuIhb5oG4',
-    appId: '1:6952523205:ios:ed493f5898fba3f78227ac',
-    messagingSenderId: '6952523205',
-    projectId: 'tappuu-7c425',
-    storageBucket: 'tappuu-7c425.firebasestorage.app',
-    iosBundleId: 'com.example.tappuuApp',
+    apiKey: 'AIzaSyAew3HM8GUkYazA9_Vb2wmvqCCVwKj9i8Q',
+    appId: '1:361185904079:ios:0f287109bc31e47cf87eba',
+    messagingSenderId: '361185904079',
+    projectId: 'stayinme-1af7d',
+    storageBucket: 'stayinme-1af7d.firebasestorage.app',
+    androidClientId: '361185904079-j9vvnk0t7q0tp2mh45lj2sa848qh13ik.apps.googleusercontent.com',
+    iosClientId: '361185904079-fbsoi489m6573crs3mua0935kdi4c66s.apps.googleusercontent.com',
+    iosBundleId: 'com.example.stayInMe.RunnerTests',
   );
 
 }

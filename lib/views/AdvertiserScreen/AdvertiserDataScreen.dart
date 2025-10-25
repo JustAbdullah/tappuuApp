@@ -463,7 +463,7 @@ class AdvertiserDataScreen extends StatelessWidget {
                       _featureRow(isDark, Icons.group_add, 'دعوات متعددة تحت مظلة الشركة'.tr,
                           'أضف أعضاء بفئات صلاحيات مختلفة للنشر والمتابعة.'.tr),
                       _featureRow(isDark, Icons.verified_user, 'صلاحيات مرنة'.tr,
-                          'مالك / ناشر / عارض — تحكم في من ينشر ومن يشاهد.'.tr),
+                          'مالك / ناشر .'.tr),
                       _featureRow(isDark, Icons.campaign, 'إعلانات لكل عضو'.tr,
                           'كل عضو ينشر بإسم الشركة ويظهر اسمه عند التواصل.'.tr),
                    

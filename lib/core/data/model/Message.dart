@@ -357,6 +357,9 @@ class CompanyMemberMessage {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
+  /// رابط صورة العضو (يأتي من avatar_url في الـ API)
+  final String? avatarUrl;
+
   // كائن مستخدم مختصر (اختياري)
   final CompanyMemberUser? user;
 
@@ -372,6 +375,7 @@ class CompanyMemberMessage {
     required this.status,
     this.createdAt,
     this.updatedAt,
+    this.avatarUrl,
     this.user,
   });
 
@@ -388,6 +392,7 @@ class CompanyMemberMessage {
       status: (json['status']?.toString() ?? ''),
       createdAt: json['created_at'] != null ? Message.parseDateTime(json['created_at']) : null,
       updatedAt: json['updated_at'] != null ? Message.parseDateTime(json['updated_at']) : null,
+      avatarUrl: json['avatar_url']?.toString(), // ✅ جديد
       user: (json['user'] is Map<String, dynamic>)
           ? CompanyMemberUser.fromJson(json['user'] as Map<String, dynamic>)
           : null,
@@ -406,6 +411,7 @@ class CompanyMemberMessage {
         'status': status,
         'created_at': createdAt?.toIso8601String(),
         'updated_at': updatedAt?.toIso8601String(),
+        'avatar_url': avatarUrl, // ✅ جديد
         if (user != null) 'user': user!.toJson(),
       };
 }

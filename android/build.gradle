@@ -3,8 +3,8 @@ buildscript {
         google()
         mavenCentral()
     }
-
     dependencies {
+        // مطلوب لِـ google-services في :app
         classpath 'com.google.gms:google-services:4.4.1'
     }
 }
@@ -17,11 +17,40 @@ allprojects {
 }
 
 rootProject.buildDir = "../build"
+
+// نخلي كل الموديولات تبني داخل build/ واحد ونضمن تقييم :app أولاً
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
-}
-subprojects {
     project.evaluationDependsOn(":app")
+}
+
+/* 
+   حل نهائي لمشكلة:
+   - "Could not get unknown property 'flutter' for extension 'android' ..."
+   - مكاتب ما تحدد compileSdk/minSdk
+
+   نوفر map باسم flutter تتوقعه بعض البلغنز القديمة (مثل wakelock_plus)،
+   ونثبت compileSdk/minSdk لأي مكتبة Android Library.
+*/
+subprojects { subproject ->
+    // نوفر متغير flutter للمكاتب التي تعتمد عليه في build.gradle
+    subproject.ext.flutter = [
+        compileSdkVersion: 35,
+        minSdkVersion    : 21,
+        targetSdkVersion : 35,
+        ndkVersion       : null
+    ]
+
+    // نضمن قيَم SDK للمكاتب من نوع Android Library
+    subproject.plugins.withId("com.android.library") {
+        def androidExt = subproject.extensions.findByName("android")
+        if (androidExt != null) {
+            androidExt.compileSdkVersion 35
+            if (androidExt.defaultConfig != null && !androidExt.defaultConfig.hasProperty("minSdkVersion")) {
+                androidExt.defaultConfig.minSdkVersion 21
+            }
+        }
+    }
 }
 
 tasks.register("clean", Delete) {

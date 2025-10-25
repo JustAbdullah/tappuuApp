@@ -1,4 +1,4 @@
-// ConversationScreen.dart — Part 1/3
+// ConversationScreen.dart — Full (Parts 1/3 + 2/3 + 3/3 merged)
 
 import 'dart:async';
 import 'dart:io';
@@ -38,6 +38,14 @@ class PendingVoice {
     this.uploadedUrl,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
+}
+
+// helper صغير بدل firstWhereOrNull لتفادي أي اعتماديات إضافية
+T? _firstWhereOrNull<T>(Iterable<T> items, bool Function(T) test) {
+  for (final x in items) {
+    if (test(x)) return x;
+  }
+  return null;
 }
 
 class ConversationScreen extends StatefulWidget {
@@ -462,7 +470,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   Future<void> _ensureMessageDuration(Message message) async {
-    if (message.id == null) return;
     if (_messageDurations.containsKey(message.id)) return;
 
     final player = AudioPlayer();
@@ -471,7 +478,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       await player.setSourceUrl(message.voiceUrl!);
       final duration = await player.getDuration().timeout(const Duration(seconds: 10));
       if (duration != null && duration.inMilliseconds > 0) {
-        _messageDurations[message.id!] = duration;
+        _messageDurations[message.id] = duration;
         if (mounted) setState(() {});
       }
     } on TimeoutException {
@@ -499,7 +506,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final reg = RegExp(r'\B(?=(\d{3})+(?!\d))');
     return s.replaceAllMapped(reg, (m) => ',');
   }
-// ConversationScreen.dart — Part 2/3 (build/UI)
+
+  // ====================== UI ======================
 
   @override
   Widget build(BuildContext context) {
@@ -850,7 +858,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final mainAxis = isCurrentUser ? MainAxisAlignment.end : MainAxisAlignment.start;
 
     final isVoice = message.isVoice == true;
-    final dur = (message.id != null && _messageDurations.containsKey(message.id))
+    final dur = (_messageDurations.containsKey(message.id))
         ? _messageDurations[message.id]!
         : Duration.zero;
 
@@ -1112,7 +1120,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final isPending = pv != null;
     final displayDuration = isPending ? pv!.duration : (cachedDuration ?? Duration.zero);
 
-    if (!isPending && message.voiceUrl != null && (message.id != null) && !_messageDurations.containsKey(message.id)) {
+    if (!isPending && message.voiceUrl != null && !_messageDurations.containsKey(message.id)) {
       _ensureMessageDuration(message);
     }
 
@@ -1188,7 +1196,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
       case PendingVoiceStatus.sent:      return 'أُرسل';
     }
   }
-// ConversationScreen.dart — Part 3/3 (Contact Sheet + helpers)
 
   // ===== الإطلاقات =====
   Future<void> _launchWhatsAppChat(String? phone) async {
@@ -1238,7 +1245,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return;
     }
 
-    final ok = await _chatController.deleteMessage(message.id ?? 0);
+    final ok = await _chatController.deleteMessage(message.id);
     if (ok) {
       if (!mounted) return;
       setState(() {});
@@ -1248,14 +1255,41 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
   }
 
-  // ===== شاشة التواصل الموحّدة: شركة/فردي =====
+  // ===== عنصر صورة دائرية مع fallback =====
+  Widget _avatarCircle(String? url, {double size = 64, IconData fallbackIcon = Icons.person}) {
+    final isDark = _themeController.isDarkMode.value;
+    final borderColor = AppColors.border(isDark);
+    if (url != null && url.trim().isNotEmpty) {
+      return CircleAvatar(
+        radius: size / 2,
+        backgroundColor: borderColor,
+        child: ClipOval(
+          child: Image.network(
+            url,
+            width: size, height: size, fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Icon(fallbackIcon, size: size * 0.6, color: AppColors.textSecondary(isDark)),
+          ),
+        ),
+      );
+    }
+    return CircleAvatar(
+      radius: size / 2,
+      backgroundColor: borderColor,
+      child: Icon(fallbackIcon, size: size * 0.6, color: AppColors.textSecondary(isDark)),
+    );
+  }
+
+  // ===== شاشة التواصل الموحّدة: شركة/فردي (مع صورة العضو) =====
   void _openContactSideSheet() {
     final adv = widget.advertiser;
 
     // نحاول استخراج عضو الشركة من الرسائل (إن وجد)
     CompanyMemberMessage? member;
     if (_chatController.messagesList.isNotEmpty) {
-      member = _chatController.messagesList.firstWhereOrNull((m) => m.adCompanyMember != null)?.adCompanyMember;
+      member = _firstWhereOrNull<Message>(
+        _chatController.messagesList,
+        (m) => m.adCompanyMember != null,
+      )?.adCompanyMember;
     }
 
     // تحديد نوع الحساب:
@@ -1272,6 +1306,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
         final titleStyle = TextStyle(fontFamily: AppTextStyles.appFontFamily, fontWeight: FontWeight.w700, fontSize: 16.sp, color: AppColors.textPrimary(isDark));
         final labelStyle = TextStyle(fontFamily: AppTextStyles.appFontFamily, fontSize: 12.sp, color: AppColors.textSecondary(isDark));
         final valueStyle = TextStyle(fontFamily: AppTextStyles.appFontFamily, fontSize: 13.sp, color: AppColors.textPrimary(isDark));
+
+        // نقرّر الصورة المعروضة في الهيدر: صورة العضو إن وُجدت، غير ذلك شعار المعلن
+        final String? headerImageUrl = (member?.avatarUrl?.isNotEmpty ?? false)
+            ? member!.avatarUrl
+            : ((adv.logo ?? '').isNotEmpty ? adv.logo : null);
+
+        final String headerTitle = isCompany
+            ? (member?.displayName?.isNotEmpty == true ? member!.displayName! : (adv.name ?? 'الشخص المسؤول'))
+            : (adv.name ?? 'المعلن');
 
         return Align(
           alignment: Alignment.centerRight,
@@ -1299,6 +1342,31 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       ),
                     ),
                     const Divider(height: 1),
+
+                    // ===== هيدر بصورة =====
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 14.h),
+                      child: Row(
+                        children: [
+                          _avatarCircle(headerImageUrl, size: 56),
+                          SizedBox(width: 12.w),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(headerTitle, style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontWeight: FontWeight.w700, fontSize: 15.sp, color: AppColors.textPrimary(isDark))),
+                                SizedBox(height: 4.h),
+                                Text(
+                                  isCompany ? (adv.name ?? '-') : (adv.contactPhone ?? '-'),
+                                  style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontSize: 12.sp, color: AppColors.textSecondary(isDark)),
+                                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
 
                     Expanded(
                       child: SingleChildScrollView(
@@ -1345,13 +1413,34 @@ class _ConversationScreenState extends State<ConversationScreen> {
                               // شركة: نعرض اسم الشركة فقط هنا (بدون أرقام الشركة)
                               _kv('اسم الشركة', adv.name ?? '-', labelStyle, valueStyle),
 
-                              // عضو الشركة (المسؤول) + أرقامه فقط
+                              // عضو الشركة (المسؤول) + صورته + أرقامه فقط
                               SizedBox(height: 16.h),
                               _sectionHeader('الشخص المسؤول'),
                               SizedBox(height: 8.h),
-                              _kv('الاسم', (member?.displayName ?? adv.name) ?? '-', labelStyle, valueStyle),
+
+                              // صورة العضو + الاسم
+                              Row(
+                                children: [
+                                  _avatarCircle(member?.avatarUrl ?? adv.logo, size: 52),
+                                  SizedBox(width: 10.w),
+                                  Expanded(
+                                    child: Text(
+                                      (member?.displayName ?? adv.name) ?? '-',
+                                      style: TextStyle(
+                                        fontFamily: AppTextStyles.appFontFamily,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 14.sp,
+                                        color: AppColors.textPrimary(isDark),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+
                               if ((member?.contactPhone ?? '').isNotEmpty) ...[
-                                SizedBox(height: 6.h),
+                                SizedBox(height: 10.h),
                                 _contactTile('اتصال هاتفي (العضو)', member!.contactPhone!, onTap: () => _launchPhoneCall(member!.contactPhone)),
                               ],
                               if ((member?.whatsappPhone ?? '').isNotEmpty) ...[

@@ -144,6 +144,15 @@ class CompanyMemberLite {
   final String? whatsappPhone;
   final String? whatsappCallNumber;
   final String status; // active | removed
+
+  /// جديد: رابط صورة العضو (avatar)
+  final String? avatarUrl;
+
+  /// جديد: التواريخ من السيرفر
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  /// علاقة اختيارية
   final UserLite? user;
 
   CompanyMemberLite({
@@ -156,6 +165,9 @@ class CompanyMemberLite {
     this.whatsappPhone,
     this.whatsappCallNumber,
     required this.status,
+    this.avatarUrl,
+    this.createdAt,
+    this.updatedAt,
     this.user,
   });
 
@@ -170,6 +182,9 @@ class CompanyMemberLite {
       whatsappPhone: json['whatsapp_phone']?.toString(),
       whatsappCallNumber: json['whatsapp_call_number']?.toString(),
       status: (json['status'] ?? '').toString(),
+      avatarUrl: json['avatar_url']?.toString(),
+      createdAt: _toDateTime(json['created_at']),
+      updatedAt: _toDateTime(json['updated_at']),
       user: (json['user'] is Map<String, dynamic>)
           ? UserLite.fromJson(json['user'] as Map<String, dynamic>)
           : null,
@@ -186,6 +201,9 @@ class CompanyMemberLite {
         'whatsapp_phone': whatsappPhone,
         'whatsapp_call_number': whatsappCallNumber,
         'status': status,
+        if (avatarUrl != null) 'avatar_url': avatarUrl,
+        if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+        if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
         if (user != null) 'user': user!.toJson(),
       };
 }
@@ -226,4 +244,14 @@ bool _toBool(dynamic v) {
   final s = v.toString().toLowerCase().trim();
   // يدعم 1/0 و "true"/"false"
   return s == '1' || s == 'true' || s == 'yes';
+}
+
+DateTime? _toDateTime(dynamic v) {
+  if (v == null) return null;
+  try {
+    if (v is DateTime) return v;
+    return DateTime.tryParse(v.toString());
+  } catch (_) {
+    return null;
+  }
 }

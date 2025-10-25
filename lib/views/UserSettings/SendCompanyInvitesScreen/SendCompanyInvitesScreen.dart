@@ -710,7 +710,7 @@ class _InviteCard extends StatelessWidget {
                     Icon(Icons.badge_rounded, size: 16.w, color: AppColors.textSecondary(isDark)),
                     SizedBox(width: 6.w),
                     Text(
-                      (invite.role == 'viewer' ? 'عارض' : 'ناشر').tr,
+                      ('ناشر').tr,
                       style: TextStyle(
                         fontSize: AppTextStyles.medium,
                         color: AppColors.textSecondary(isDark),
@@ -750,16 +750,10 @@ class _InviteCard extends StatelessWidget {
                   ],
                 ),
               ),
-              PopupMenuItem<String>(
-                value: 'viewer',
-                child: Row(
-                  children: [
-                    const Icon(Icons.visibility_rounded),
-                    SizedBox(width: 8.w),
-                    Text('تحويل إلى عارض'.tr),
-                  ],
-                ),
-              ),
+            
+               
+            
+           
               const PopupMenuDivider(),
               PopupMenuItem<String>(
                 value: 'cancel',

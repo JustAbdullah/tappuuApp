@@ -1,12 +1,7 @@
-// يجب أن تكون buildscript في الأعلى
-buildscript {
-    ext.kotlin_version = '1.8.22'  // أحدث إصدار مستقر
-}
-
 plugins {
     id "com.android.application"
+    id "org.jetbrains.kotlin.android"
     id "com.google.gms.google-services"
-    id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
 }
 
@@ -18,15 +13,8 @@ if (localPropertiesFile.exists()) {
     }
 }
 
-def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
-if (flutterVersionCode == null) {
-    flutterVersionCode = '1'
-}
-
-def flutterVersionName = localProperties.getProperty('flutter.versionName')
-if (flutterVersionName == null) {
-    flutterVersionName = '1.0'
-}
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode') ?: '1'
+def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '1.0'
 
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file('key.properties')
@@ -55,20 +43,17 @@ android {
         }
     }
 
-   buildTypes {
-    release {
-        signingConfig signingConfigs.release
-        minifyEnabled true
-        shrinkResources true
-        proguardFiles getDefaultProguardFile(
-            'proguard-android-optimize.txt'
-        ), 'proguard-rules.pro'
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            signingConfig signingConfigs.debug
+        }
     }
-    debug {
-        signingConfig signingConfigs.debug
-    }
-}
-
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -89,7 +74,6 @@ flutter {
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
     implementation 'com.google.android.gms:play-services-auth:20.7.0'
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
