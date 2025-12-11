@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 
+import '../core/constant/app_text_styles.dart';
 import '../core/constant/appcolors.dart';
 import '../core/data/model/FavoriteSeller.dart';
 import '../core/data/model/AdResponse.dart';
@@ -41,56 +43,193 @@ favoriteList.value = list;
 
   /// متابعة أو إلغاء متابعة (toggle)
    /// متابعة أو إلغاء متابعة (toggle) باستخدام معرف المستخدم ومعرف المعلن فقط
-  Future<bool> toggleFavoriteByIds({
-    required int userId,
-    required int advertiserProfileId,
-  }) async {
-    isToggling.value = true;
-    try {
-      final uri = Uri.parse('$_baseUrl/advertiser-follows/toggle');
-      final body = {
-        'user_id': userId,
-        'advertiser_profile_id': advertiserProfileId,
-      };
+ Future<bool> toggleFavoriteByIds({
+  required int userId,
+  required int advertiserProfileId,
+}) async {
+  isToggling.value = true;
+  try {
+    final uri = Uri.parse('$_baseUrl/advertiser-follows/toggle');
+    final body = {
+      'user_id': userId,
+      'advertiser_profile_id': advertiserProfileId,
+    };
 
-      final res = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
+    final res = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(body),
+    );
 
-      if (res.statusCode == 200) {
-        final result = json.decode(res.body) as Map<String, dynamic>;
-        if (result['success'] == true) {
-          // optional: read action and follow_id
-          final action = result['action'] as String?;
-          final followId = result['follow_id'];
+    if (res.statusCode == 200) {
+      final Map<String, dynamic> result = json.decode(res.body) as Map<String, dynamic>;
+      if (result['success'] == true) {
+        final action = (result['action'] ?? '').toString().toLowerCase(); // "followed" | "unfollowed"
+        final followId = result['follow_id'];
+        debugPrint('toggleFavoriteByIds: action=$action followId=$followId');
 
-          debugPrint('toggleFavoriteByIds: action=$action followId=$followId');
+        // إبقاء الحالة متزامنة مع السيرفر
+        await fetchFavorites(userId: userId);
 
-          // أفضل طريقة: إعادة جلب قائمة المفضلات للمستخدم لتكون متزامنة مع الخادم
-          await fetchFavorites(userId: userId);
-           Get.snackbar(backgroundColor: Colors.green,
-            'نجاح'.tr, 'تم متابعة المعلن بنجاح'.tr);
+        // مظهر Snackbar محسّن
+        final bool didFollow = action == 'followed' || action == 'follow';
+        final Color bg = didFollow ? const Color(0xFF10B981) : const Color(0xFF3B82F6); // أخضر/أزرق
+        final IconData icon = didFollow ? Icons.check_circle_rounded : Icons.undo_rounded;
+        final String title = didFollow ? 'نجاح'.tr : 'تم إلغاء المتابعة'.tr;
+        final String message = didFollow ? 'تم متابعة المعلن بنجاح.'.tr : 'تم إلغاء متابعة هذا المعلن.'.tr;
 
-          return true;
-        } else {
+        // لمسة اهتزاز خفيفة
+        HapticFeedback.lightImpact();
+        Get.closeAllSnackbars();
+        Get.snackbar(
+          '',
+          '',
+          snackPosition: SnackPosition.BOTTOM,
+          snackStyle: SnackStyle.FLOATING,
+          margin: const EdgeInsets.all(12),
+          borderRadius: 14,
+          backgroundColor: bg.withOpacity(0.96),
+          icon: Icon(icon, color: Colors.white),
+          duration: const Duration(seconds: 3),
+          animationDuration: const Duration(milliseconds: 250),
+          forwardAnimationCurve: Curves.easeOutBack,
+          reverseAnimationCurve: Curves.easeIn,
+          titleText: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontFamily: AppTextStyles.appFontFamily,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              color: Colors.white,
+              letterSpacing: 0.2,
+            ),
+          ),
+          messageText: Text(
+            message,
+            style: TextStyle(
+              fontFamily: AppTextStyles.appFontFamily,
+              fontSize: 14,
+              color: Colors.white,
+              height: 1.25,
+            ),
+          ),
+        );
 
-           Get.snackbar(
-            backgroundColor: Colors.red,
-            'فشل'.tr, 'لم يتم متابعة المعلن   '.tr);
-          debugPrint('toggleFavoriteByIds: success == false, body: ${res.body}');
-        }
+        return true;
       } else {
-        debugPrint('toggleFavoriteByIds: status ${res.statusCode}, body: ${res.body}');
+        debugPrint('toggleFavoriteByIds: success == false, body: ${res.body}');
+        final serverMsg = (result['message'] ?? '').toString();
+
+        HapticFeedback.mediumImpact();
+        Get.closeAllSnackbars();
+        Get.snackbar(
+          '',
+          '',
+          snackPosition: SnackPosition.BOTTOM,
+          snackStyle: SnackStyle.FLOATING,
+          margin: const EdgeInsets.all(12),
+          borderRadius: 14,
+          backgroundColor: const Color(0xFFEF4444).withOpacity(0.96), // أحمر فشل
+          icon: const Icon(Icons.error_outline_rounded, color: Colors.white),
+          duration: const Duration(seconds: 3),
+          titleText: Text(
+            'فشل'.tr,
+            style: TextStyle(
+              fontFamily: AppTextStyles.appFontFamily,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              color: Colors.white,
+            ),
+          ),
+          messageText: Text(
+            serverMsg.isNotEmpty ? serverMsg : 'لم يتم متابعة المعلن.'.tr,
+            style: TextStyle(
+              fontFamily: AppTextStyles.appFontFamily,
+              fontSize: 14,
+              color: Colors.white,
+              height: 1.25,
+            ),
+          ),
+        );
       }
-    } catch (e, st) {
-      debugPrint('Exception toggleFavoriteByIds: $e\n$st');
-    } finally {
-      isToggling.value = false;
+    } else {
+      debugPrint('toggleFavoriteByIds: status ${res.statusCode}, body: ${res.body}');
+      HapticFeedback.mediumImpact();
+      Get.closeAllSnackbars();
+      Get.snackbar(
+        '',
+        '',
+        snackPosition: SnackPosition.BOTTOM,
+        snackStyle: SnackStyle.FLOATING,
+        margin: const EdgeInsets.all(12),
+        borderRadius: 14,
+        backgroundColor: const Color(0xFFEF4444).withOpacity(0.96),
+        icon: const Icon(Icons.error_outline_rounded, color: Colors.white),
+        duration: const Duration(seconds: 3),
+        titleText: Text(
+          'فشل'.tr,
+          style: TextStyle(
+            fontFamily: AppTextStyles.appFontFamily,
+            fontWeight: FontWeight.w800,
+            fontSize: 16,
+            color: Colors.white,
+          ),
+        ),
+        messageText: Text(
+          'خطأ في الخادم (${res.statusCode}).'.tr,
+          style: TextStyle(
+            fontFamily: AppTextStyles.appFontFamily,
+            fontSize: 14,
+            color: Colors.white,
+            height: 1.25,
+          ),
+        ),
+      );
     }
-    return false;
+  } 
+
+
+   catch (e, st) {
+    debugPrint('Exception toggleFavoriteByIds: $e\n$st');
+    HapticFeedback.mediumImpact();
+    Get.closeAllSnackbars();
+    Get.snackbar(
+      '',
+      '',
+      snackPosition: SnackPosition.BOTTOM,
+      snackStyle: SnackStyle.FLOATING,
+      margin: const EdgeInsets.all(12),
+      borderRadius: 14,
+      backgroundColor: const Color(0xFFEF4444).withOpacity(0.96),
+      icon: const Icon(Icons.error_outline_rounded, color: Colors.white),
+      duration: const Duration(seconds: 3),
+      titleText: Text(
+        'فشل'.tr,
+        style: TextStyle(
+          fontFamily: AppTextStyles.appFontFamily,
+          fontWeight: FontWeight.w800,
+          fontSize: 16,
+          color: Colors.white,
+        ),
+      ),
+      messageText: Text(
+        'حدث خطأ غير متوقع.'.tr,
+        style: TextStyle(
+          fontFamily: AppTextStyles.appFontFamily,
+          fontSize: 14,
+          color: Colors.white,
+          height: 1.25,
+        ),
+      ),
+    );
+  } finally {
+    isToggling.value = false;
   }
+  return false;
+}
+
 
 
   // =====================================================

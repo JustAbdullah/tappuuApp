@@ -1,4 +1,4 @@
-// lib/core/data/model/editable_text_model.dart
+// lib/core/data/model/EditableTextModel.dart
 class EditableTextModel {
   final int id;
   final String keyName;
@@ -46,5 +46,23 @@ class EditableTextModel {
       'created_at': createdAt,
       'updated_at': updatedAt,
     };
+  }
+
+  EditableTextModel copyWith({
+    String? textContent,
+    int? fontSize,
+    String? color,
+    String? fontUrl,
+  }) {
+    return EditableTextModel(
+      id: id,
+      keyName: keyName,
+      textContent: textContent ?? this.textContent,
+      fontUrl: fontUrl ?? this.fontUrl,
+      fontSize: fontSize ?? this.fontSize,
+      color: color ?? this.color,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
   }
 }

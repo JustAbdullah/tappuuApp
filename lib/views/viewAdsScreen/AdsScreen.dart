@@ -593,7 +593,7 @@ void _showDelayedImageSearch() {
 
           // ===== AppBar مخصّص مشابه للصورة =====
           appBar: PreferredSize(
-            preferredSize: Size.fromHeight(70.h),
+            preferredSize: Size.fromHeight(56.h),
             child: SafeArea(
               child: Container(
                 padding: EdgeInsets.symmetric(horizontal: 12.w),
@@ -956,11 +956,11 @@ void _showDelayedImageSearch() {
                                   SizedBox(width: 8.w),
 
                                   // ---- image search icon ----
-                                  IconButton(
+                                 /* IconButton(
                                     icon: Icon(Icons.image_search_outlined, color: AppColors.textPrimary(themeController.isDarkMode.value), size: 22.w),
                                     onPressed: () => _showImageSearchDialog(),
                                     tooltip: 'بحث بواسطة صورة'.tr,
-                                  ),
+                                  ),*/
                                   SizedBox(width: 6.w),
                                   // ----------------------------
                                   IconButton(
@@ -1294,43 +1294,79 @@ Widget _toolItem({
                         ),
                         SizedBox(width: 12.w),
                         Expanded(
-                          child: ElevatedButton(
-                            onPressed: () {
-                              final userId = Get.find<LoadingController>().currentUser?.id;
-                              if (userId == null) {
-                                Get.snackbar('تنبيه'.tr, 'يجب تسجيل الدخول '.tr);
-                                return;
-                              } else if (widget.categoryId == null) {
-                                Get.snackbar('تنبيه'.tr, 'لايمكنك حفظ البحث في عمليات البحث او الاعلانات المميزة او العاجلة'.tr);
-                              } else {
-                                print(userId);
-                                searchHistoryController.addSearchHistory(
-                                    userId: Get.find<LoadingController>().currentUser?.id ?? 0,
-                                    recordName: searchNameController.text,
-                                    categoryId: widget.categoryId!,
-                                    subcategoryId: widget.subCategoryId,
-                                    secondSubcategoryId: widget.subCategoryId,
-                                    notifyPhone: mobileNotifications,
-                                    notifyEmail: emailNotifications);
-                              }
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.buttonAndLinksColor,
-                              padding: EdgeInsets.symmetric(vertical: 12.h),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
-                            ),
-                            child: Text(
-                              'حفظ'.tr,
-                              style: TextStyle(
-                                fontFamily: AppTextStyles.appFontFamily,
-                                fontSize: AppTextStyles.medium,
+  child: ElevatedButton(
+    onPressed: () {
+      final userId = Get.find<LoadingController>().currentUser?.id;
 
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ),
+      // 🔔 دالة صغيرة لعرض سناك بار تحذيري بشكل احترافي
+      void showWarningSnack(String title, String message) {
+        Get.closeAllSnackbars();
+        Get.snackbar(
+          title,
+          message,
+          snackPosition: SnackPosition.TOP,
+          snackStyle: SnackStyle.FLOATING,
+          margin: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+          borderRadius: 16.r,
+          backgroundGradient: const LinearGradient(
+            colors: [
+              Color(0xFFF97316), // برتقالي فاتح
+              Color(0xFFEA580C), // برتقالي أغمق
+            ],
+          ),
+          colorText: Colors.white,
+          icon: const Icon(Icons.info_outline_rounded, color: Colors.white, size: 22),
+          shouldIconPulse: false,
+          barBlur: 12,
+          isDismissible: true,
+          duration: const Duration(seconds: 3),
+          maxWidth: 480, // في الويب يعطي إحساس كارد أنيق
+        );
+      }
+
+      if (userId == null) {
+        showWarningSnack('تنبيه'.tr, 'يجب تسجيل الدخول'.tr);
+        return;
+      }
+
+      if (widget.categoryId == null) {
+        showWarningSnack(
+          'تنبيه'.tr,
+          'لايمكنك حفظ البحث في عمليات البحث او الاعلانات المميزة او العاجلة'.tr,
+        );
+        return;
+      }
+
+      // ✅ إذا كل شيء تمام ننفذ العملية
+      searchHistoryController.addSearchHistory(
+        userId: userId,
+        recordName: searchNameController.text,
+        categoryId: widget.categoryId!,
+        subcategoryId: widget.subCategoryId,
+        secondSubcategoryId: widget.subCategoryId,
+        notifyPhone: mobileNotifications,
+        notifyEmail: emailNotifications,
+      );
+    },
+    style: ElevatedButton.styleFrom(
+      backgroundColor: AppColors.buttonAndLinksColor,
+      padding: EdgeInsets.symmetric(vertical: 12.h),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8.r),
+      ),
+    ),
+    child: Text(
+      'حفظ'.tr,
+      style: TextStyle(
+        fontFamily: AppTextStyles.appFontFamily,
+        fontSize: AppTextStyles.medium,
+        fontWeight: FontWeight.bold,
+        color: Colors.white,
+      ),
+    ),
+  ),
+),
+
                       ],
                     ),
                   ],

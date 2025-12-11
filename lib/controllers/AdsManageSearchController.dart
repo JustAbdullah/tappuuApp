@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import '../core/data/model/AdResponse.dart';
 import '../core/data/model/CategoryAttributesResponse.dart';
 import '../core/data/model/City.dart';
+import '../core/data/model/category.dart';
 import '../core/localization/changelanguage.dart';
 import '../core/data/model/Area.dart' as area;
 
@@ -123,47 +124,49 @@ Future<void> fetchAds({
 
   // البحث والفرز
   String? search,
-  String? sortBy,        // 'price', 'date', 'views', ...
-  String order = 'desc', // 'asc' أو 'desc'
+  String? sortBy,        // 'price_asc','price_desc','newest',...
+  String order = 'desc',
 
-  // الفلترة الجغرافية
+  // الجغرافيا
   double? latitude,
   double? longitude,
-  double? distanceKm,    // مسافة بالكم
+  double? distanceKm,
 
-  // فلترة السمات
+  // السمات
   List<Map<String, dynamic>>? attributes,
 
-  // فلترة المدينة والمنطقة
+  // المدينة/المنطقة
   int? cityId,
   int? areaId,
 
-  // **الفلاتر الجديدة**
-  String? timeframe,     // '24h', '48h' أو null (كل الإعلانات)
-  bool onlyFeatured = false, // جلب المميزة فقط؟
+  // الفلاتر الجديدة
+  String? timeframe,
+  bool onlyFeatured = false,
 
-  // إعدادات عامة
+  // ✅ السعر
+  double? priceMin,
+  double? priceMax,
+
+  // عام
   required String lang,
   int page = 1,
   int perPage = 15,
 }) async {
-  // 1) حفظ الحالة بمحاذاة الـ Rx
+  // 1) حفظ حالة أساسية
   currentCategoryId.value            = categoryId ?? 0;
   currentSubCategoryLevelOneId.value = subCategoryLevelOneId;
   currentSubCategoryLevelTwoId.value = subCategoryLevelTwoId;
   currentSearch.value                = search?.trim() ?? '';
   currentSortBy.value                = sortBy;
   currentOrder.value                 = order;
- 
+
   currentAttributes.value            = attributes ?? [];
-  
   currentTimeframe.value             = timeframe;
   this.onlyFeatured.value            = onlyFeatured;
   currentLang                        = lang;
 
   isLoadingAds.value = true;
   try {
-    // 2) قرر متى تستخدم POST /ads/filter
     final bool useFilterEndpoint =
          categoryId != null
       || subCategoryLevelOneId != null
@@ -177,15 +180,16 @@ Future<void> fetchAds({
       || cityId != null
       || areaId != null
       || onlyFeatured
-      || (timeframe != null && timeframe != 'all');
+      || (timeframe != null && timeframe != 'all')
+      || priceMin != null
+      || priceMax != null;
 
     late http.Response response;
 
     if (useFilterEndpoint) {
-      // === POST إلى /ads/filter ===
       final uri = Uri.parse('$_baseUrl/ads/filter');
       final body = <String, dynamic>{
-        if (categoryId != null)            'category_id':             categoryId,
+        if (categoryId != null)            'category_id':               categoryId,
         if (subCategoryLevelOneId != null) 'sub_category_level_one_id': subCategoryLevelOneId,
         if (subCategoryLevelTwoId != null) 'sub_category_level_two_id': subCategoryLevelTwoId,
         if (search?.isNotEmpty ?? false)   'search':                    search!.trim(),
@@ -201,6 +205,9 @@ Future<void> fetchAds({
         if (timeframe != null && timeframe != 'all')
                                            'timeframe':                 timeframe,
         if (onlyFeatured)                  'only_featured':             true,
+        // ✅ السعر
+        if (priceMin != null)              'price_min':                 priceMin,
+        if (priceMax != null)              'price_max':                 priceMax,
         'lang':                            lang,
         'page':                            page,
         'per_page':                        perPage,
@@ -215,29 +222,27 @@ Future<void> fetchAds({
         body: json.encode(body),
       );
     } else {
-      // === GET إلى /ads ===
       final params = <String, String>{
-        'lang':      lang,
-        'page':      page.toString(),
-        'per_page':  perPage.toString(),
-        'order':     order,
+        'lang':     lang,
+        'page':     page.toString(),
+        'per_page': perPage.toString(),
+        'order':    order,
       };
       final uri = Uri.parse('$_baseUrl/ads').replace(queryParameters: params);
       print('📤 [GET REQUEST] URL: $uri');
       response = await http.get(uri);
     }
 
-    // 3) المعالجة
     if (response.statusCode == 200) {
       final jsonData = json.decode(response.body) as Map<String, dynamic>;
       final rawList = (jsonData['data'] as List<dynamic>);
       var ads = AdResponse.fromJson({'data': rawList}).data;
 
-      // 4) إذا أرسلنا latitude/longitude، احسب المسافة ورتّب القائمة
+      // ترتيب حسب قرب الموقع إن أُرسل
       if (latitude != null && longitude != null) {
         double _deg2rad(double deg) => deg * pi / 180;
         double haversine(double lat1, double lng1, double lat2, double lng2) {
-          const R = 6371; // نصف قطر الأرض بالكلم
+          const R = 6371;
           final dLat = _deg2rad(lat2 - lat1);
           final dLon = _deg2rad(lng2 - lng1);
           final a = sin(dLat/2)*sin(dLat/2)
@@ -254,10 +259,9 @@ Future<void> fetchAds({
         });
       }
 
-     adsList.value         = ads;
-  filteredAdsList.value = ads;
-  allAdsList.value      = ads; // تأكد من تعيين allAdsList هنا
-
+      adsList.value         = ads;
+      filteredAdsList.value = ads;
+      allAdsList.value      = ads;
     } else {
       print('❌ [ERROR] HTTP ${response.statusCode}');
       Get.snackbar("خطأ", "تعذّر جلب الإعلانات (${response.statusCode})");
@@ -270,6 +274,7 @@ Future<void> fetchAds({
     isLoadingAds.value = false;
   }
 }
+
 
 
 
@@ -419,29 +424,84 @@ Future<void> searchByImage({
   }
 
   // ==================== وظائف السمات ====================
-  Future<void> fetchAttributes({
-    required int categoryId,
-    String lang = 'ar',
-  }) async {
-    isLoadingAttributes.value = true;
-    try {
-      final uri = Uri.parse('$_baseUrl/categories/$categoryId/attributes')
-          .replace(queryParameters: {'lang': lang});
-      final response = await http.get(uri);
+ 
+ 
 
-      if (response.statusCode == 200) {
-        final jsonData = json.decode(response.body) as Map<String, dynamic>;
-        final resp = CategoryAttributesResponse.fromJson(jsonData);
-        if (resp.success) {
-          attributesList.value = resp.attributes;
-        }
+  
+  
+ 
+  // ==================== وظائف السمات ====================
+Future<void> fetchAttributes({
+  required int categoryId,
+  String lang = 'ar',
+  bool onlyFilterVisible = true, // جديد: نتحكم من الواجهة
+}) async {
+  isLoadingAttributes.value = true;
+  try {
+    final uri = Uri.parse('$_baseUrl/categories/$categoryId/attributes').replace(
+      queryParameters: {
+        'lang': lang,
+        if (onlyFilterVisible) 'only_filter_visible': '1', // مهم
+      },
+    );
+
+    final response = await http.get(uri);
+    if (response.statusCode == 200) {
+      final jsonData = json.decode(response.body) as Map<String, dynamic>;
+      final resp = CategoryAttributesResponse.fromJson(jsonData);
+      if (resp.success) {
+        // الخادم يرجّع أصلاً الظاهرة فقط عندما نرسل only_filter_visible=1
+        attributesList.value = resp.attributes;
+      } else {
+        attributesList.clear();
       }
-    } catch (e) {
-      print('خطأ في جلب السمات: $e');
-    } finally {
-      isLoadingAttributes.value = false;
+    } else {
+      attributesList.clear();
     }
+  } catch (e) {
+    print('خطأ في جلب السمات: $e');
+    attributesList.clear();
+  } finally {
+    isLoadingAttributes.value = false;
   }
+}
+
+// ------ جلب التصنيفات الرئيسية ------
+
+ /// جلب التنصيفات من اجل الفلترة في حال لم يتم تمرير اي تصنيف رئيسي معرف..
+
+
+
+
+  RxList<Category> categoriesList = <Category>[].obs;
+  RxBool isLoadingCategories = false.obs;
+Future<void> fetchCategories(String language, {String? adsPeriod}) async {
+  isLoadingCategories.value = true;
+  try {
+    Uri uri = Uri.parse('$_baseUrl/categories/$language');
+    if (adsPeriod != null && adsPeriod.isNotEmpty) {
+      uri = uri.replace(queryParameters: {'ads_period': adsPeriod});
+    }
+    final response = await http.get(uri);
+    if (response.statusCode == 200) {
+      final Map<String, dynamic> jsonResponse = json.decode(response.body);
+      if (jsonResponse['status'] == 'success') {
+        final List<dynamic> data = jsonResponse['data'] as List<dynamic>;
+        categoriesList.value = data.map((e) => Category.fromJson(e as Map<String, dynamic>)).toList();
+      } else {
+        categoriesList.clear();
+      }
+    } else {
+      categoriesList.clear();
+    }
+  } catch (e) {
+    print("Error fetching categories: $e");
+    categoriesList.clear();
+  } finally {
+    isLoadingCategories.value = false;
+  }
+}
+
 
   // ==================== وظائف المدن والمناطق ====================
   Future<void> fetchCities(String countryCode, String language) async {
@@ -476,6 +536,7 @@ Future<void> searchByImage({
     selectedCity.value = city;
     selectedArea.value = null;
   }
+
   
   void selectArea(area.Area? area) {
     selectedArea.value = area;

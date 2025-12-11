@@ -604,7 +604,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   Widget _buildCustomAppBar(bool isDarkMode, Color titleColor) {
     final adv = widget.advertiser;
     return Container(
-      height: 60.h,
+      height: 50.h,
       color: AppColors.appBar(isDarkMode),
       padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 6.h),
       child: Row(

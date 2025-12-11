@@ -41,23 +41,61 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
   final expiryCtrl = TextEditingController();
   final cvvCtrl = TextEditingController();
   final userAccountNumberCtrl = TextEditingController();
+  final ScrollController _scrollCtrl = ScrollController();
 
   String get initialPaymentMethod {
     return _cardPaymentController.isEnabled.value ? 'card' : 'bank';
   }
-  
+
   String selectedPaymentMethod = 'bank';
   BankAccountModel? selectedBankAccount;
   File? transferProofImage;
   bool isProcessing = false;
   bool showChargeScreen = false;
 
+  // ====== عملات بالعربية ======
+  static const Map<String, String> _currencyNamesAr = {
+    'SYP': 'ليرة سورية',
+    'LS': 'ليرة سورية',
+    'L.S': 'ليرة سورية',
+    'SYRIAN POUND': 'ليرة سورية',
+    'YER': 'ريال يمني',
+    'SAR': 'ريال سعودي',
+    'IQD': 'دينار عراقي',
+    'LBP': 'ليرة لبنانية',
+    'EGP': 'جنيه مصري',
+    'TRY': 'ليرة تركية',
+    'AED': 'درهم إماراتي',
+    'USD': 'دولار أمريكي',
+    'EUR': 'يورو',
+  };
+
+  String _currencyArabic(String? codeOrName) {
+    if (codeOrName == null || codeOrName.trim().isEmpty) return 'عملة';
+    final raw = codeOrName.trim();
+    final key = raw.toUpperCase().replaceAll('.', '').replaceAll(' ', '');
+    if (_currencyNamesAr.containsKey(key)) return _currencyNamesAr[key]!;
+    if (raw.contains('ل.س') || raw.toUpperCase().contains('SYP') || raw.toUpperCase().contains('LS')) {
+      return 'ليرة سورية';
+    }
+    return raw; // fallback
+  }
+
+  String get _walletCurrencyAr => _currencyArabic(widget.wallet.currency);
+
+  final NumberFormat _amountFormat = NumberFormat('#,##0.##', 'ar');
+
+  double? get _amountValue {
+    final txt = amountCtrl.text.replaceAll(',', '').trim();
+    return double.tryParse(txt);
+  }
+
   @override
   void initState() {
     super.initState();
     bankAccountController.fetchAccounts();
     selectedPaymentMethod = initialPaymentMethod;
-    
+
     amountCtrl.addListener(_updateButtonState);
     cardNumberCtrl.addListener(_updateButtonState);
     nameCtrl.addListener(_updateButtonState);
@@ -70,19 +108,46 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
     setState(() {});
   }
 
-  bool get _isFormValid {
-    if (amountCtrl.text.isEmpty || double.tryParse(amountCtrl.text) == null) {
-      return false;
-    }
+  // ====== فحص جاهزية النموذج بدون validate() ======
+  bool get _amountOk => _amountValue != null && _amountValue! > 0;
 
-    if (selectedPaymentMethod == 'card') {
-      return _formKey.currentState?.validate() ?? false;
-    } else if (selectedPaymentMethod == 'bank') {
-      return selectedBankAccount != null &&
-          userAccountNumberCtrl.text.isNotEmpty &&
-          transferProofImage != null;
-    }
+  bool get _cardFieldsOk {
+    final digits = cardNumberCtrl.text.replaceAll(RegExp(r'\s+'), '');
+    final exp = expiryCtrl.text;
+    final cvv = cvvCtrl.text;
+    final name = nameCtrl.text.trim();
+    final expOk = exp.length == 4; // MMYY
+    return digits.length >= 12 && name.isNotEmpty && expOk && cvv.length >= 3;
+  }
+
+  bool get _bankFieldsOk {
+    return selectedBankAccount != null &&
+        userAccountNumberCtrl.text.trim().isNotEmpty &&
+        transferProofImage != null;
+  }
+
+  bool get _isFormReady {
+    if (!_amountOk) return false;
+    if (selectedPaymentMethod == 'card') return _cardFieldsOk;
+    if (selectedPaymentMethod == 'bank') return _bankFieldsOk;
     return false;
+  }
+
+  List<String> get _blockingReasons {
+    final reasons = <String>[];
+    if (!_amountOk) reasons.add('مبلغ الشحن غير مدخل أو غير صالح.');
+    if (selectedPaymentMethod == 'bank') {
+      if (selectedBankAccount == null) reasons.add('اختر الحساب البنكي للتحويل.');
+      if (userAccountNumberCtrl.text.trim().isEmpty) reasons.add('أدخل رقم حسابك الذي تم التحويل منه.');
+      if (transferProofImage == null) reasons.add('ارفع صورة إثبات التحويل.');
+    } else if (selectedPaymentMethod == 'card') {
+      final digits = cardNumberCtrl.text.replaceAll(RegExp(r'\s+'), '');
+      if (digits.length < 12) reasons.add('رقم البطاقة غير صحيح.');
+      if (nameCtrl.text.trim().isEmpty) reasons.add('أدخل اسم صاحب البطاقة.');
+      if (expiryCtrl.text.length < 4) reasons.add('تاريخ انتهاء البطاقة غير صحيح (MMYY).');
+      if (cvvCtrl.text.length < 3) reasons.add('رمز CVV غير صحيح.');
+    }
+    return reasons;
   }
 
   @override
@@ -93,13 +158,14 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
     expiryCtrl.removeListener(_updateButtonState);
     cvvCtrl.removeListener(_updateButtonState);
     userAccountNumberCtrl.removeListener(_updateButtonState);
-    
+
     amountCtrl.dispose();
     cardNumberCtrl.dispose();
     nameCtrl.dispose();
     expiryCtrl.dispose();
     cvvCtrl.dispose();
     userAccountNumberCtrl.dispose();
+    _scrollCtrl.dispose();
     super.dispose();
   }
 
@@ -111,15 +177,17 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
     }
     final formatted = groups.join(' ');
     if (formatted != cardNumberCtrl.text) {
-      cardNumberCtrl.value =
-          TextEditingValue(text: formatted, selection: TextSelection.collapsed(offset: formatted.length));
+      cardNumberCtrl.value = TextEditingValue(
+        text: formatted,
+        selection: TextSelection.collapsed(offset: formatted.length),
+      );
     }
   }
 
   Future<void> _pickImage() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
-    
+
     if (image != null) {
       setState(() {
         transferProofImage = File(image.path);
@@ -142,41 +210,21 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
   Future<void> _processPayment() async {
     FocusScope.of(context).unfocus();
 
-    if (selectedPaymentMethod == 'card' && !_formKey.currentState!.validate()) {
+    if (selectedPaymentMethod == 'card' && !(_formKey.currentState?.validate() ?? false)) {
       return;
     }
 
     if (selectedPaymentMethod == 'bank') {
       if (selectedBankAccount == null) {
-        Get.snackbar(
-          'خطأ', 
-          'الرجاء اختيار حساب بنكي', 
-          snackPosition: SnackPosition.BOTTOM, 
-          backgroundColor: Colors.red, 
-          colorText: Colors.white
-        );
+        Get.snackbar('خطأ', 'الرجاء اختيار حساب بنكي', snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.red, colorText: Colors.white);
         return;
       }
-
       if (transferProofImage == null) {
-        Get.snackbar(
-          'خطأ', 
-          'الرجاء رفع صورة إثبات التحويل', 
-          snackPosition: SnackPosition.BOTTOM, 
-          backgroundColor: Colors.red, 
-          colorText: Colors.white
-        );
+        Get.snackbar('خطأ', 'الرجاء رفع صورة إثبات التحويل', snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.red, colorText: Colors.white);
         return;
       }
-
-      if (userAccountNumberCtrl.text.isEmpty) {
-        Get.snackbar(
-          'خطأ', 
-          'الرجاء إدخال رقم حسابك', 
-          snackPosition: SnackPosition.BOTTOM, 
-          backgroundColor: Colors.red, 
-          colorText: Colors.white
-        );
+      if (userAccountNumberCtrl.text.trim().isEmpty) {
+        Get.snackbar('خطأ', 'الرجاء إدخال رقم حسابك', snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.red, colorText: Colors.white);
         return;
       }
     }
@@ -184,36 +232,35 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
     setState(() => isProcessing = true);
 
     try {
-      final amount = double.tryParse(amountCtrl.text) ?? 0;
-      
+      final amount = _amountValue ?? 0;
+
       if (selectedPaymentMethod == 'card') {
-        await Future.delayed(Duration(seconds: 2));
-        
+        await Future.delayed(const Duration(seconds: 2));
+
         if (amount > 0) {
           walletController.creditWallet(
             walletUuid: widget.wallet.uuid,
             amount: amount,
-            note: "شحن محفظة:${widget.wallet.uuid}, مبلغ الشحن هو:$amount"
+            note: "شحن محفظة:${widget.wallet.uuid}, مبلغ الشحن هو:$amount",
           );
         }
-        
+
         Get.snackbar(
-          'نجاح', 
-          'تم شحن المحفظة بمبلغ ${amountCtrl.text} ل.س',
-          snackPosition: SnackPosition.BOTTOM, 
-          backgroundColor: Colors.green, 
-          colorText: Colors.white
+          'نجاح',
+          'تم شحن المحفظة بمبلغ ${_amountFormat.format(amount)} ${_walletCurrencyAr}',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.green,
+          colorText: Colors.white,
         );
         _backToWalletDetails();
-        
       } else if (selectedPaymentMethod == 'bank') {
         final TransferProofController proofController = Get.find<TransferProofController>();
-        
+
         final bool success = await proofController.createProof(
           bankAccountId: selectedBankAccount!.id,
           walletId: int.parse(widget.wallet.id.toString()),
           amount: amount,
-          sourceAccountNumber: userAccountNumberCtrl.text,
+          sourceAccountNumber: userAccountNumberCtrl.text.trim(),
           proofFile: transferProofImage,
         );
 
@@ -252,7 +299,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
                   ),
                   SizedBox(height: 12.h),
                   Text(
-                    'لقد تم إرسال إثبات عملية التحويل بنجاح. سيتم التحقق منها وإبلاغك في النتيجة خلال 24 ساعة.'.tr,
+                    'لقد تم إرسال إثبات عملية التحويل بنجاح. سيتم التحقق منها وإبلاغك بالنتيجة خلال 24 ساعة.'.tr,
                     style: TextStyle(
                       fontFamily: AppTextStyles.appFontFamily,
                       fontSize: AppTextStyles.medium,
@@ -287,7 +334,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
                     child: Text(
                       'موافق'.tr,
                       style: TextStyle(
-                          color: AppColors.textSecondary(themeController.isDarkMode.value),
+                        color: AppColors.textSecondary(themeController.isDarkMode.value),
                         fontFamily: AppTextStyles.appFontFamily,
                         fontSize: AppTextStyles.medium,
                         fontWeight: FontWeight.bold,
@@ -302,25 +349,25 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
           );
         } else {
           Get.snackbar(
-            'خطأ', 
+            'خطأ',
             'فشل في إرسال إثبات التحويل. يرجى المحاولة مرة أخرى.'.tr,
-            snackPosition: SnackPosition.BOTTOM, 
-            backgroundColor: Colors.red, 
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.red,
             colorText: Colors.white,
-            duration: Duration(seconds: 5),
+            duration: const Duration(seconds: 5),
           );
         }
       }
     } catch (e) {
       setState(() => isProcessing = false);
-      
+
       Get.snackbar(
-        'خطأ', 
+        'خطأ',
         'حدث خطأ غير متوقع: $e'.tr,
-        snackPosition: SnackPosition.BOTTOM, 
-        backgroundColor: Colors.red, 
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red,
         colorText: Colors.white,
-        duration: Duration(seconds: 5),
+        duration: const Duration(seconds: 5),
       );
     }
   }
@@ -339,6 +386,68 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
       transferProofImage = null;
       isProcessing = false;
     });
+  }
+
+  // ====== الأزرار العائمة للشحن ======
+  Widget _floatingActionsForCharge() {
+    final canTap = _isFormReady && !isProcessing;
+
+    return SafeArea(
+      minimum: EdgeInsets.all(16.w),
+      child: Row(
+        children: [
+          // رجوع
+          Expanded(
+            child: FloatingActionButton.extended(
+              heroTag: 'fab_back',
+              onPressed: isProcessing ? null : _backToWalletDetails,
+              backgroundColor: Theme.of(context).cardColor,
+              foregroundColor: AppColors.primary,
+              elevation: 2,
+              label: Text('رجوع إلى التفاصيل'.tr,
+                  style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontWeight: FontWeight.w700)),
+              icon: const Icon(Icons.arrow_back),
+              shape: StadiumBorder(side: BorderSide(color: AppColors.primary.withOpacity(0.3))),
+            ),
+          ),
+          SizedBox(width: 12.w),
+          // إتمام الشحن
+          Expanded(
+            child: FloatingActionButton.extended(
+              heroTag: 'fab_pay',
+              onPressed: () {
+                if (canTap) {
+                  _processPayment();
+                } else {
+                  // لو غير جاهز، ننزل لأسفل لعرض الأسباب
+                  if (_blockingReasons.isNotEmpty) {
+                    _scrollCtrl.animateTo(
+                      _scrollCtrl.position.maxScrollExtent,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOut,
+                    );
+                  }
+                }
+              },
+              backgroundColor: canTap ? AppColors.primary : Colors.grey,
+              foregroundColor: Colors.white,
+              elevation: 3,
+              icon: isProcessing
+                  ? SizedBox(
+                      width: 18.r,
+                      height: 18.r,
+                      child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.verified),
+              label: Text(
+                'إتمام الشحن'.tr,
+                style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontWeight: FontWeight.w900),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildWalletDetails(bool isDark) {
@@ -361,9 +470,9 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
               ),
               SizedBox(height: 16.h),
               _buildDetailItem(
-                icon: Icons.attach_money,
+                icon: Icons.account_balance_wallet_outlined,
                 title: 'الرصيد'.tr,
-                value: '${widget.wallet.balance} ${widget.wallet.currency}',
+                value: '${_amountFormat.format(widget.wallet.balance)} ${_walletCurrencyAr}',
                 isDarkMode: isDark,
               ),
               SizedBox(height: 16.h),
@@ -477,7 +586,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
             Expanded(
               child: ElevatedButton.icon(
                 onPressed: () => walletController.freezeWallet(widget.wallet.uuid),
-                icon: Icon(Icons.close, size: 20.r),
+                icon: Icon(Icons.lock_outline, size: 20.r),
                 label: Text('تجميد'.tr),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.orange,
@@ -500,7 +609,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
                 label: Text('حذف المحفظة'.tr),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.red,
-                  side: BorderSide(color: Colors.red),
+                  side: const BorderSide(color: Colors.red),
                   textStyle: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontSize: 14.sp),
                   padding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 10.w),
                 ),
@@ -569,7 +678,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
             label: Text('حذف المحفظة'.tr),
             style: OutlinedButton.styleFrom(
               foregroundColor: Colors.red,
-              side: BorderSide(color: Colors.red),
+              side: const BorderSide(color: Colors.red),
               textStyle: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontSize: 14.sp),
               padding: EdgeInsets.symmetric(vertical: 12.h),
             ),
@@ -584,6 +693,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // تعليمات
           Container(
             width: double.infinity,
             padding: EdgeInsets.all(16.w),
@@ -624,23 +734,23 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
             ),
           ),
           SizedBox(height: 20.h),
-          
+
           Text(
             'اختر الحساب البنكي للتحويل'.tr,
             style: TextStyle(
               fontFamily: AppTextStyles.appFontFamily,
               fontSize: AppTextStyles.medium,
-              fontWeight: FontWeight.w600, 
-               color: AppColors.textSecondary(themeController.isDarkMode.value),
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary(themeController.isDarkMode.value),
             ),
           ),
           SizedBox(height: 8.h),
-          
+
           Obx(() {
             if (bankAccountController.isLoading.value) {
-              return Center(child: CircularProgressIndicator());
+              return const Center(child: CircularProgressIndicator());
             }
-            
+
             return Container(
               decoration: BoxDecoration(
                 color: AppColors.card(isDark),
@@ -650,7 +760,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
               child: DropdownButton<BankAccountModel>(
                 value: selectedBankAccount,
                 isExpanded: true,
-                underline: SizedBox(),
+                underline: const SizedBox(),
                 padding: EdgeInsets.symmetric(horizontal: 16.w),
                 hint: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 8.w),
@@ -692,7 +802,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
               ),
             );
           }),
-          
+
           if (selectedBankAccount != null) ...[
             SizedBox(height: 16.h),
             Container(
@@ -722,7 +832,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
                         onPressed: () => _copyToClipboard(selectedBankAccount!.accountNumber),
                         icon: Icon(Icons.copy, color: Colors.green, size: 20.r),
                         padding: EdgeInsets.zero,
-                        constraints: BoxConstraints(),
+                        constraints: const BoxConstraints(),
                       ),
                     ],
                   ),
@@ -750,9 +860,9 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
               ),
             ),
           ],
-          
+
           SizedBox(height: 16.h),
-          
+
           TextFormField(
             controller: userAccountNumberCtrl,
             decoration: InputDecoration(
@@ -766,14 +876,16 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
                 borderSide: BorderSide.none,
               ),
             ),
-            validator: selectedPaymentMethod == 'bank' ? (v) {
-              if (v == null || v.isEmpty) return 'الرجاء إدخال رقم حسابك'.tr;
-              return null;
-            } : null,
+            validator: selectedPaymentMethod == 'bank'
+                ? (v) {
+                    if (v == null || v.trim().isEmpty) return 'الرجاء إدخال رقم حسابك'.tr;
+                    return null;
+                  }
+                : null,
           ),
-          
+
           SizedBox(height: 16.h),
-          
+
           Text(
             'إثبات التحويل'.tr,
             style: TextStyle(
@@ -783,7 +895,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
             ),
           ),
           SizedBox(height: 8.h),
-          
+
           GestureDetector(
             onTap: _pickImage,
             child: Container(
@@ -803,8 +915,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
                       children: [
                         Icon(Icons.cloud_upload, size: 40.r, color: Colors.grey),
                         SizedBox(height: 8.h),
-                        Text('اضغط لرفع صورة إثبات التحويل'.tr,
-                            style: TextStyle(color: Colors.grey)),
+                        Text('اضغط لرفع صورة إثبات التحويل'.tr, style: const TextStyle(color: Colors.grey)),
                         SizedBox(height: 4.h),
                         Text(
                           'يجب أن تكون الصورة واضحة وتظهر تفاصيل التحويل'.tr,
@@ -843,7 +954,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
                     ),
             ),
           ),
-          
+
           if (transferProofImage != null) ...[
             SizedBox(height: 8.h),
             TextButton(
@@ -862,6 +973,7 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // بطاقة
           Container(
             width: double.infinity,
             padding: EdgeInsets.all(16.w),
@@ -907,14 +1019,17 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
             controller: cardNumberCtrl,
             keyboardType: TextInputType.number,
             onChanged: _onCardNumberChanged,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(19)],
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(19),
+            ],
             decoration: InputDecoration(
-              labelText: 'رقم البطاقة'.tr, 
-              hintText: 'xxxx xxxx xxxx xxxx', 
-              filled: true, 
-              fillColor: AppColors.card(isDark), 
-              prefixIcon: Icon(Icons.credit_card, color: AppColors.primary), 
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide.none)
+              labelText: 'رقم البطاقة'.tr,
+              hintText: 'xxxx xxxx xxxx xxxx',
+              filled: true,
+              fillColor: AppColors.card(isDark),
+              prefixIcon: Icon(Icons.credit_card, color: AppColors.primary),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide.none),
             ),
             validator: (v) {
               final digits = (v ?? '').replaceAll(RegExp(r'\s+'), '');
@@ -924,56 +1039,62 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
             },
           ),
           SizedBox(height: 16.h),
-          
+
           TextFormField(
-            controller: nameCtrl, 
-            keyboardType: TextInputType.name, 
+            controller: nameCtrl,
+            keyboardType: TextInputType.name,
             decoration: InputDecoration(
-              labelText: 'اسم صاحب البطاقة'.tr, 
-              hintText: 'xxxx', 
-              filled: true, 
-              fillColor: AppColors.card(isDark), 
-              prefixIcon: Icon(Icons.person_outline, color: AppColors.primary), 
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide.none)
-            ), 
-            validator: (v) => (v ?? '').trim().isEmpty ? 'الرجاء إدخال الاسم'.tr : null
+              labelText: 'اسم صاحب البطاقة'.tr,
+              hintText: 'xxxx',
+              filled: true,
+              fillColor: AppColors.card(isDark),
+              prefixIcon: Icon(Icons.person_outline, color: AppColors.primary),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide.none),
+            ),
+            validator: (v) => (v ?? '').trim().isEmpty ? 'الرجاء إدخال الاسم'.tr : null,
           ),
           SizedBox(height: 16.h),
-          
+
           Row(
             children: [
               Expanded(
                 child: TextFormField(
-                  controller: expiryCtrl, 
-                  keyboardType: TextInputType.number, 
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(4)], 
+                  controller: expiryCtrl,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(4),
+                  ],
                   decoration: InputDecoration(
-                    labelText: 'انتهاء الصلاحية (MMYY)'.tr, 
-                    filled: true, 
-                    fillColor: AppColors.card(isDark), 
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide.none)
-                  ), 
-                  validator: (v) => (v ?? '').length < 4 ? 'تاريخ غير صحيح'.tr : null
+                    labelText: 'انتهاء الصلاحية (MMYY)'.tr,
+                    filled: true,
+                    fillColor: AppColors.card(isDark),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide.none),
+                  ),
+                  validator: (v) => (v ?? '').length < 4 ? 'تاريخ غير صحيح'.tr : null,
                 ),
               ),
               SizedBox(width: 16.w),
               SizedBox(
-                width: 120.w, 
+                width: 120.w,
                 child: TextFormField(
-                  controller: cvvCtrl, 
-                  keyboardType: TextInputType.number, 
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(4)], 
+                  controller: cvvCtrl,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(4),
+                  ],
                   decoration: InputDecoration(
-                    labelText: 'CVV'.tr, 
-                    filled: true, 
-                    fillColor: AppColors.card(isDark), 
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide.none)
-                  ), 
-                  obscureText: true, 
-                  validator: (v) => (v ?? '').length < 3 ? 'CVV غير صحيح'.tr : null
+                    labelText: 'CVV'.tr,
+                    filled: true,
+                    fillColor: AppColors.card(isDark),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide.none),
+                  ),
+                  obscureText: true,
+                  validator: (v) => (v ?? '').length < 3 ? 'CVV غير صحيح'.tr : null,
                 ),
               ),
-            ]
+            ],
           ),
           SizedBox(height: 24.h),
         ],
@@ -982,14 +1103,20 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
   }
 
   Widget _buildChargeScreen(bool isDark) {
+    final totalText = _amountOk ? _amountFormat.format(_amountValue) : '0';
+
+    // نزيد مساحة سفلية للمحتوى حتى ما يختبئ وراء الأزرار العائمة
+    final bottomSpace = 160.h;
+
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
       child: SingleChildScrollView(
-        padding: EdgeInsets.all(16.w),
+        controller: _scrollCtrl,
+        padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, bottomSpace),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start, 
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Order summary
+            // ملخص
             Container(
               width: double.infinity,
               padding: EdgeInsets.all(20.w),
@@ -1000,230 +1127,236 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
                   BoxShadow(
                     color: Colors.black.withOpacity(0.1),
                     blurRadius: 10,
-                    offset: Offset(0, 4),
+                    offset: const Offset(0, 4),
                   )
                 ],
               ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start, 
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                Center(
-                  child: Text(
-                    'ملخص عملية الشحن'.tr, 
-                    style: TextStyle(
-                      fontFamily: AppTextStyles.appFontFamily, 
-                      fontSize: AppTextStyles.xlarge,
-                      fontWeight: FontWeight.w800
-                    )
-                  )
-                ),
-                SizedBox(height: 16.h),
-                Divider(),
-                SizedBox(height: 16.h),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween, 
-                  children: [
-                  Text('المحفظة:'.tr, style: TextStyle(fontFamily: AppTextStyles.appFontFamily, color: AppColors.textSecondary(isDark))),
-                  Text(widget.wallet.uuid, style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontWeight: FontWeight.w700, fontSize: AppTextStyles.small,)),
-                ]),
-                SizedBox(height: 12.h),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween, 
-                  children: [
-                  Text('الرصيد الحالي:'.tr, style: TextStyle(fontFamily: AppTextStyles.appFontFamily, color: AppColors.textSecondary(isDark))),
-                  Text('${widget.wallet.balance} ${widget.wallet.currency}', style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontWeight: FontWeight.w700)),
-                ]),
-                SizedBox(height: 12.h),
-                Divider(),
-                SizedBox(height: 12.h),
-                TextFormField(
-                  controller: amountCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: 'مبلغ الشحن'.tr,
-                    hintText: 'أدخل المبلغ المراد شحنه',
-                    filled: true,
-                    fillColor: AppColors.background(isDark),
-                    prefixIcon: Icon(Icons.attach_money, color: AppColors.primary),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide.none),
+                  Center(
+                    child: Text(
+                      'ملخص عملية الشحن'.tr,
+                      style: TextStyle(
+                        fontFamily: AppTextStyles.appFontFamily,
+                        fontSize: AppTextStyles.xlarge,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ),
-                  validator: (v) {
-                    final amount = double.tryParse(v ?? '');
-                    if (amount == null || amount <= 0) return 'الرجاء إدخال مبلغ صحيح'.tr;
-                    return null;
-                  },
-                ),
-                SizedBox(height: 12.h),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween, 
-                  children: [
-                  Text('الإجمالي:'.tr, style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontSize: AppTextStyles.large, fontWeight: FontWeight.w800)),
-                  Text('${amountCtrl.text.isNotEmpty ? amountCtrl.text : '0'} ${widget.wallet.currency}', style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontSize: AppTextStyles.xxlarge, fontWeight: FontWeight.w900, color: AppColors.primary)),
-                ]),
-              ]),
+                  SizedBox(height: 16.h),
+                  const Divider(),
+                  SizedBox(height: 16.h),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('المحفظة:'.tr, style: TextStyle(fontFamily: AppTextStyles.appFontFamily, color: AppColors.textSecondary(isDark))),
+                      Text(widget.wallet.uuid, style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontWeight: FontWeight.w700, fontSize: AppTextStyles.small)),
+                    ],
+                  ),
+                  SizedBox(height: 12.h),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('الرصيد الحالي:'.tr, style: TextStyle(fontFamily: AppTextStyles.appFontFamily, color: AppColors.textSecondary(isDark))),
+                      Text('${_amountFormat.format(widget.wallet.balance)} ${_walletCurrencyAr}',
+                          style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                  SizedBox(height: 12.h),
+                  const Divider(),
+                  SizedBox(height: 12.h),
+                  TextFormField(
+                    controller: amountCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                    ],
+                    decoration: InputDecoration(
+                      labelText: 'مبلغ الشحن'.tr,
+                      hintText: 'أدخل المبلغ المراد شحنه',
+                      filled: true,
+                      fillColor: AppColors.background(isDark),
+                      prefixIcon: Icon(Icons.payments, color: AppColors.primary),
+                      suffixText: _walletCurrencyAr,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  SizedBox(height: 12.h),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('الإجمالي:'.tr, style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontSize: AppTextStyles.large, fontWeight: FontWeight.w800)),
+                      Text('$totalText $_walletCurrencyAr',
+                          style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontSize: AppTextStyles.xxlarge, fontWeight: FontWeight.w900, color: AppColors.primary)),
+                    ],
+                  ),
+                ],
+              ),
             ),
             SizedBox(height: 24.h),
 
-            // Payment methods - Dynamic based on card payment settings
             Text('اختر طريقة الشحن'.tr, style: TextStyle(fontSize: AppTextStyles.xlarge, fontWeight: FontWeight.w700, fontFamily: AppTextStyles.appFontFamily)),
             SizedBox(height: 16.h),
 
-            // Use Obx to reactively update based on card payment settings
             Obx(() {
               final isCardEnabled = _cardPaymentController.isEnabled.value;
-              
+
               return Container(
-                decoration: BoxDecoration(
-                  color: AppColors.card(isDark), 
-                  borderRadius: BorderRadius.circular(16.r)
-                ),
+                decoration: BoxDecoration(color: AppColors.card(isDark), borderRadius: BorderRadius.circular(16.r)),
                 child: Column(
                   children: [
-                    // Show bank transfer always
                     ListTile(
                       leading: Icon(Icons.account_balance, color: AppColors.primary),
                       title: Text('تحويل بنكي'.tr, style: TextStyle(fontFamily: AppTextStyles.appFontFamily)),
                       trailing: Radio(
-                        value: 'bank', 
-                        groupValue: selectedPaymentMethod, 
-                        onChanged: (value) => setState(() => selectedPaymentMethod = value.toString()), 
-                        activeColor: AppColors.primary
+                        value: 'bank',
+                        groupValue: selectedPaymentMethod,
+                        onChanged: (value) => setState(() {
+                          selectedPaymentMethod = value.toString();
+                          _updateButtonState();
+                        }),
+                        activeColor: AppColors.primary,
                       ),
-                      onTap: () => setState(() => selectedPaymentMethod = 'bank'),
+                      onTap: () => setState(() {
+                        selectedPaymentMethod = 'bank';
+                        _updateButtonState();
+                      }),
                     ),
-                    
-                    // Show credit card only if enabled
-                    if (isCardEnabled) 
-                    ListTile(
-                      leading: Icon(Icons.credit_card, color: AppColors.primary),
-                      title: Text('بطاقة ائتمان'.tr, style: TextStyle(fontFamily: AppTextStyles.appFontFamily)),
-                      trailing: Radio(
-                        value: 'card', 
-                        groupValue: selectedPaymentMethod, 
-                        onChanged: (value) => setState(() => selectedPaymentMethod = value.toString()), 
-                        activeColor: AppColors.primary
+                    if (isCardEnabled)
+                      ListTile(
+                        leading: Icon(Icons.credit_card, color: AppColors.primary),
+                        title: Text('بطاقة ائتمان'.tr, style: TextStyle(fontFamily: AppTextStyles.appFontFamily)),
+                        trailing: Radio(
+                          value: 'card',
+                          groupValue: selectedPaymentMethod,
+                          onChanged: (value) => setState(() {
+                            selectedPaymentMethod = value.toString();
+                            _updateButtonState();
+                          }),
+                          activeColor: AppColors.primary,
+                        ),
+                        onTap: () => setState(() {
+                          selectedPaymentMethod = 'card';
+                          _updateButtonState();
+                        }),
                       ),
-                      onTap: () => setState(() => selectedPaymentMethod = 'card'),
-                    ),
-                    
-                    // Show message if card payment is disabled
-                    if (!isCardEnabled) 
-                    ListTile(
-                      leading: Icon(Icons.credit_card_off, color: Colors.grey),
-                      title: Text(
-                        'الدفع بالبطاقة غير متاح حالياً'.tr, 
-                        style: TextStyle(
-                          fontFamily: AppTextStyles.appFontFamily, 
-                          color: Colors.grey,
-                          fontStyle: FontStyle.italic,
-                        )
+                    if (!isCardEnabled)
+                      ListTile(
+                        leading: const Icon(Icons.credit_card_off, color: Colors.grey),
+                        title: Text(
+                          'الدفع بالبطاقة غير متاح حالياً'.tr,
+                          style: TextStyle(
+                            fontFamily: AppTextStyles.appFontFamily,
+                            color: Colors.grey,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
                       ),
-                    ),
                   ],
                 ),
               );
             }),
             SizedBox(height: 24.h),
 
-            // Show appropriate form based on selection
-            if (selectedPaymentMethod == 'card') 
-              _buildCreditCardSection(isDark),
+            if (selectedPaymentMethod == 'card') _buildCreditCardSection(isDark),
+            if (selectedPaymentMethod == 'bank') _buildBankTransferSection(isDark),
 
-            if (selectedPaymentMethod == 'bank') 
-              _buildBankTransferSection(isDark),
-
-            // Payment button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isFormValid && !isProcessing ? _processPayment : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _isFormValid ? AppColors.primary : Colors.grey,
-                  padding: EdgeInsets.symmetric(vertical: 16.h), 
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r))
-                ),
-                child: isProcessing 
-                    ? SizedBox(
-                        height: 20.h, 
-                        width: 20.h, 
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                      ) 
-                    : Text(
-                        'إتمام الشحن'.tr, 
-                        style: TextStyle(
-                          color: Colors.white, 
-                          fontWeight: FontWeight.w900, 
-                          fontFamily: AppTextStyles.appFontFamily
-                        )
-                      ),
-              ),
-            ),
-            
-            SizedBox(height: 16.h),
-            
-            // Back button
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: _backToWalletDetails,
-                style: OutlinedButton.styleFrom(
-                  padding: EdgeInsets.symmetric(vertical: 16.h),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
-                  side: BorderSide(color: AppColors.primary),
-                ),
-                child: Text(
-                  'رجوع إلى تفاصيل المحفظة'.tr,
-                  style: TextStyle(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w600,
-                    fontFamily: AppTextStyles.appFontFamily,
-                  ),
-                ),
-              ),
-            ),
-            
-            if (!_isFormValid) ...[
+            // أسباب عدم الاكتمال
+            if (!_isFormReady) ...[
               SizedBox(height: 16.h),
-              Center(
-                child: Text(
-                  'يرجى ملء جميع الحقول المطلوبة'.tr,
-                  style: TextStyle(
-                    fontFamily: AppTextStyles.appFontFamily,
-                    fontSize: AppTextStyles.small,
-                    color: Colors.orange,
-                  ),
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(12.w),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12.r),
+                  border: Border.all(color: Colors.orange.withOpacity(0.4)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      const Icon(Icons.error_outline, color: Colors.orange),
+                      SizedBox(width: 8.w),
+                      Text(
+                        'لا يمكن إتمام الشحن للأسباب التالية:'.tr,
+                        style: TextStyle(
+                          fontFamily: AppTextStyles.appFontFamily,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.orange[800],
+                        ),
+                      ),
+                    ]),
+                    SizedBox(height: 8.h),
+                    ..._blockingReasons.map(
+                      (r) => Padding(
+                        padding: EdgeInsets.only(bottom: 6.h),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.circle, size: 6, color: Colors.orange),
+                            SizedBox(width: 8.w),
+                            Expanded(
+                              child: Text(
+                                r,
+                                style: TextStyle(
+                                  fontFamily: AppTextStyles.appFontFamily,
+                                  fontSize: AppTextStyles.small,
+                                  color: AppColors.textSecondary(isDark),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
-          ]),
+          ],
+        ),
       ),
     );
   }
 
   String _getStatusText(String status) {
     switch (status) {
-      case 'active': return 'نشطة'.tr;
-      case 'frozen': return 'مجمدة'.tr;
-      case 'closed': return 'مغلقة'.tr;
-      default: return status;
+      case 'active':
+        return 'نشطة'.tr;
+      case 'frozen':
+        return 'مجمدة'.tr;
+      case 'closed':
+        return 'مغلقة'.tr;
+      default:
+        return status;
     }
   }
 
   Color _getStatusColor(String status, bool isDarkMode) {
     switch (status) {
-      case 'active': return Colors.green;
-      case 'frozen': return Colors.orange;
-      case 'closed': return Colors.red;
-      default: return AppColors.primary;
+      case 'active':
+        return Colors.green;
+      case 'frozen':
+        return Colors.orange;
+      case 'closed':
+        return Colors.red;
+      default:
+        return AppColors.primary;
     }
   }
 
   Color _getStatusTextColor(String status) {
     switch (status) {
-      case 'active': return Colors.green;
-      case 'frozen': return Colors.orange;
-      case 'closed': return Colors.red;
-      default: return Colors.grey;
+      case 'active':
+        return Colors.green;
+      case 'frozen':
+        return Colors.orange;
+      case 'closed':
+        return Colors.red;
+      default:
+        return Colors.grey;
     }
   }
 
@@ -1298,7 +1431,13 @@ class _WalletDetailsPageState extends State<WalletDetailsPage> {
           icon: Icon(Icons.arrow_back, color: AppColors.onPrimary),
         ),
       ),
+      // الجسم
       body: showChargeScreen ? _buildChargeScreen(isDark) : _buildWalletDetails(isDark),
+
+      // الأزرار العائمة تُعرض فقط في شاشة الشحن
+      floatingActionButton: showChargeScreen ? _floatingActionsForCharge() : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      resizeToAvoidBottomInset: true,
     );
   }
 }

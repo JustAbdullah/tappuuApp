@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_gcaptcha_v3/recaptca_config.dart';
 import 'package:get/get.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +15,7 @@ import 'controllers/CurrencyController.dart';
 import 'controllers/ThemeController.dart';
 import 'controllers/home_controller.dart';
 import 'controllers/sharedController.dart';
+import 'controllers/AuthController.dart'; // 👈 جديد: تسجيل كنترولر الدخول
 import 'core/localization/changelanguage.dart';
 import 'core/localization/AppTranslation.dart';
 import 'core/services/appservices.dart';
@@ -21,10 +23,10 @@ import 'core/services/font_service.dart';
 import 'core/services/font_size_service.dart';
 import 'firebase_options.dart';
 
-// --- import AppColors (عدل المسار إذا كان مختلفاً) ---
 import 'core/constant/appcolors.dart';
 
-/// هذا الـ handler سيتم استدعاؤه عندما تصل رسالة في الخلفية/عند ميت التطبيق (يجب أن يكون top-level)
+// ✅ reCAPTCHA v3
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
@@ -156,7 +158,8 @@ class DeepLinkHandler {
   static final instance = DeepLinkHandler._internal();
   DeepLinkHandler._internal();
 
-  final StreamController<String> _linkStreamController = StreamController<String>.broadcast();
+  final StreamController<String> _linkStreamController =
+      StreamController<String>.broadcast();
   Stream<String> get linkStream => _linkStreamController.stream;
 
   void init() {
@@ -202,8 +205,37 @@ class DeepLinkHandler {
 }
 // ==============================================
 
+// ✅ Helper عام لتشغيل مهام في الخلفية مع timeout والتقاط الأخطاء
+void runSafeBackgroundTask(
+  Future<void> Function() task,
+  String label, {
+  Duration? timeout,
+}) {
+  unawaited(() async {
+    try {
+      Future<void> f = task();
+      if (timeout != null) {
+        f = f.timeout(timeout);
+      }
+      await f;
+      debugPrint('[$label] ✅ done');
+    } on TimeoutException catch (e, st) {
+      debugPrint('[$label] ⏰ timeout: $e');
+      debugPrint(st.toString());
+    } catch (e, st) {
+      debugPrint('[$label] ❌ error: $e');
+      debugPrint(st.toString());
+    }
+  }());
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ✅ تهيئة reCAPTCHA v3
+  RecaptchaHandler.instance.setupSiteKey(
+    dataSiteKey: '6LeUpggsAAAAAGetn0JGpR0IraF9YBHCi7ovkKLh',
+  );
 
   // تسجيل متحكم الألوان وجلب اللون الأساسي أولاً
   final colorController = Get.put(ColorController());
@@ -215,6 +247,10 @@ Future<void> main() async {
   await _setSystemUI();
   await _initializeEssentialServices();
 
+  // ✅ هنا أهم تعديل: تسجيل AuthController كـ permanent
+  // عشان لما ترجع من reCAPTCHA ما ينمسح وتبقى قيمة currentStep كما هي
+  Get.put(AuthController(), permanent: true);
+
   // قم بتشغيل تهيئة FCM بشكل غير محجوز لكي لا تؤخر بدء التطبيق.
   unawaited(setupFirebaseMessaging());
 
@@ -222,12 +258,16 @@ Future<void> main() async {
   final deepLinkHandler = DeepLinkHandler.instance;
   deepLinkHandler.init();
 
-  // انتظار جلب اللون الأساسي لمدة 3 ثواني كحد أقصى
-  await Future.any([
-    // افترض أن ColorController لديه دالة fetchPrimaryColor() كما في كودك
-    colorController.fetchPrimaryColor(),
-    Future.delayed(const Duration(seconds: 3))
-  ]);
+  // انتظار جلب اللون الأساسي لمدة 3 ثواني كحد أقصى (بدون Unhandled errors)
+  try {
+    await colorController
+        .fetchPrimaryColor()
+        .timeout(const Duration(seconds: 3));
+  } on TimeoutException catch (e) {
+    debugPrint('ColorController.fetchPrimaryColor timeout (3s): $e');
+  } catch (e) {
+    debugPrint('ColorController.fetchPrimaryColor error (ignored): $e');
+  }
 
   runApp(const MyApp());
 }
@@ -258,51 +298,35 @@ Future<void> _initializeEssentialServices() async {
     final appServices = await AppServices.init();
     Get.put(appServices, permanent: true);
 
-    // 2) جلب شعار التطبيق من الـ API وحفظه في SharedPreferences
-    try {
-      await Future.any([
-        appServices.fetchAndStoreAppLogo(),
-        Future.delayed(const Duration(seconds: 3)),
-      ]);
-      debugPrint('Attempted to fetch app logo (with timeout).');
-    } catch (e) {
-      debugPrint('Error while fetching app logo (ignored): $e');
-    }
+    // 2.a) جلب شعار التطبيق من الـ API (خلفية + timeout)
+    runSafeBackgroundTask(
+      () => appServices.fetchAndStoreAppLogo(),
+      'AppLogo',
+      timeout: const Duration(seconds: 3),
+    );
 
-    // 2.b) جلب شاشة الانتظار من الـ API
-    try {
-      await Future.any([
-        appServices.fetchAndStoreWaitingScreen(),
-        Future.delayed(const Duration(seconds: 3)),
-      ]);
-      debugPrint('Attempted to fetch waiting screen (with timeout).');
-    } catch (e) {
-      debugPrint('Error while fetching waiting screen (ignored): $e');
-    }
+    // 2.b) جلب شاشة الانتظار من الـ API (خلفية + timeout أطول)
+    runSafeBackgroundTask(
+      () => appServices.fetchAndStoreWaitingScreen(),
+      'WaitingScreen',
+      timeout: const Duration(seconds: 8),
+    );
 
-    // 2.c) جلب وتطبيق أحجام الخطوط (FontSizeService)
-    try {
-      await Future.any([
-        FontSizeService.instance.init(),
-        Future.delayed(const Duration(seconds: 3)),
-      ]);
-      debugPrint('FontSizeService init attempted.');
-    } catch (e) {
-      debugPrint('FontSizeService init failed (ignored): $e');
-    }
+    // 2.c) جلب وتطبيق أحجام الخطوط (FontSizeService) – في الخلفية
+    runSafeBackgroundTask(
+      () => FontSizeService.instance.init(),
+      'FontSizeService',
+      timeout: const Duration(seconds: 3),
+    );
 
-    // 2.d) تحميل وتسجيل الخط النشط (FontService)
-    try {
-      await Future.any([
-        FontService.instance.init(),
-        Future.delayed(const Duration(seconds: 5)),
-      ]);
-      debugPrint('FontService init attempted.');
-    } catch (e) {
-      debugPrint('FontService init failed (ignored): $e');
-    }
+    // 2.d) تحميل وتسجيل الخط النشط (FontService) – في الخلفية
+    runSafeBackgroundTask(
+      () => FontService.instance.init(),
+      'FontService',
+      timeout: const Duration(seconds: 5),
+    );
 
-    // 3) تسجيل بقية الخدمات والمتغيرات
+    // 3) تسجيل بقية الخدمات والمتغيرات (سريع)
     Get.lazyPut(() => HomeController(), fenix: true);
     Get.lazyPut(() => ThemeController(), fenix: true);
     Get.lazyPut(() => ChangeLanguageController(), fenix: true);
@@ -312,75 +336,8 @@ Future<void> _initializeEssentialServices() async {
     // لا حاجة للانتظار — مجرد استدعاء للحصول على رابط الشعار المحفوظ
     appServices.getStoredAppLogoUrl();
   } catch (e) {
-    debugPrint("❌ AppServices error: $e");
+    debugPrint("❌ _initializeEssentialServices fatal error: $e");
   }
-}
-
-// ==============================================
-// Helper: استخراج اللون من ColorController (يدعم Color, Rx<Color>, String hex)
-Color? _extractPrimaryColorFromController(dynamic controller) {
-  try {
-    if (controller == null) return null;
-
-    // تحقق أسماء شائعة لحقل اللون داخل الكنترولر
-    dynamic candidate;
-    try {
-      candidate = (controller as dynamic).primaryColor;
-    } catch (_) {}
-    if (candidate == null) {
-      try {
-        candidate = (controller as dynamic).appColor;
-      } catch (_) {}
-    }
-    if (candidate == null) {
-      try {
-        candidate = (controller as dynamic).mainColor;
-      } catch (_) {}
-    }
-    if (candidate == null) {
-      try {
-        candidate = (controller as dynamic).color;
-      } catch (_) {}
-    }
-
-    if (candidate == null) return null;
-
-    // إذا كان Rx (GetX) أعد القيمة
-    if (candidate is Rx) {
-      final v = (candidate as Rx).value;
-      if (v is Color) return v;
-      if (v is String) {
-        return _colorFromHexString(v);
-      }
-    }
-
-    // إذا كانت Rxn أو Rx<Color?>
-    try {
-      if (candidate is Rx<Color?>) {
-        return (candidate as Rx<Color?>).value;
-      }
-    } catch (_) {}
-
-    if (candidate is Color) return candidate;
-    if (candidate is String) return _colorFromHexString(candidate);
-
-    return null;
-  } catch (e) {
-    return null;
-  }
-}
-
-Color? _colorFromHexString(String s) {
-  try {
-    var hex = s.trim();
-    if (hex.startsWith('#')) hex = hex.substring(1);
-    if (hex.length == 6) hex = 'FF$hex';
-    if (hex.length == 8) {
-      final intVal = int.parse(hex, radix: 16);
-      return Color(intVal);
-    }
-  } catch (_) {}
-  return null;
 }
 
 /// استخراج ThemeMode بشكل مرن من ThemeController (يتعامل مع حقول شائعة)
@@ -521,7 +478,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                   appBarTheme: AppBarTheme(
                     backgroundColor: AppColors.appBar(false),
                     iconTheme: IconThemeData(color: AppColors.onPrimary),
-                    titleTextStyle: TextStyle(color: AppColors.onPrimary, fontSize: 18.sp, fontFamily: 'Tajawal'),
+                    titleTextStyle: TextStyle(
+                      color: AppColors.onPrimary,
+                      fontSize: 18.sp,
+                      fontFamily: 'Tajawal',
+                    ),
                     systemOverlayStyle: SystemUiOverlayStyle.dark,
                     elevation: 0,
                   ),
@@ -543,7 +504,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: AppColors.onPrimary,
-                      textStyle: TextStyle(fontFamily: 'Tajawal'),
+                      textStyle: const TextStyle(fontFamily: 'Tajawal'),
                     ),
                   ),
                 );
@@ -556,7 +517,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                   appBarTheme: AppBarTheme(
                     backgroundColor: AppColors.appBar(true),
                     iconTheme: IconThemeData(color: AppColors.onPrimary),
-                    titleTextStyle: TextStyle(color: AppColors.onPrimary, fontSize: 18.sp, fontFamily: 'Tajawal'),
+                    titleTextStyle: TextStyle(
+                      color: AppColors.onPrimary,
+                      fontSize: 18.sp,
+                      fontFamily: 'Tajawal',
+                    ),
                     systemOverlayStyle: SystemUiOverlayStyle.light,
                     elevation: 0,
                   ),
@@ -578,7 +543,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: AppColors.onPrimary,
-                      textStyle: TextStyle(fontFamily: 'Tajawal'),
+                      textStyle: const TextStyle(fontFamily: 'Tajawal'),
                     ),
                   ),
                 );
@@ -600,15 +565,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                     darkTheme: darkTheme,
                     themeMode: themeMode,
                     builder: (context, child) {
-                      final langCode = langController.currentLocale.value.languageCode;
-                      final isRtl = ['ar', 'ku', 'fa', 'ur'].contains(langCode);
+                      final langCode =
+                          langController.currentLocale.value.languageCode;
+                      final isRtl =
+                          ['ar', 'ku', 'fa', 'ur'].contains(langCode);
                       return Directionality(
-                        textDirection: isRtl ? TextDirection.rtl : TextDirection.ltr,
+                        textDirection:
+                            isRtl ? TextDirection.rtl : TextDirection.ltr,
                         child: MediaQuery(
-                          data: MediaQuery.of(context).copyWith(textScaleFactor: 1.0),
-                          child:
-                              // مجرد قراءة اللون لتشغيل التفاعلية
-                              child!,
+                          data: MediaQuery.of(context)
+                              .copyWith(textScaleFactor: 1.0),
+                          child: child!,
                         ),
                       );
                     },

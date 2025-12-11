@@ -12,6 +12,7 @@ dependencies:
   flutter:
     sdk: flutter
 
+ 
   cupertino_icons: ^1.0.8
   get: ^4.6.1
   intl: ^0.19.0
@@ -48,12 +49,12 @@ dependencies:
   speech_to_text: ^6.6.0
   mic_stream_recorder: ^1.1.2
   audioplayers: ^5.0.0
+  flutter_gcaptcha_v3: ^2.1.1
+  webview_flutter: ^4.4.0
+  webview_flutter_wkwebview: 3.17.0
 
 dependency_overrides:
   geolocator_android: 4.6.1
-  # ثبّت النسخ المتوافقة (بدون ^) علشان ما يسحب 1.4.0 ويسبب خطأ flutter{}
-  package_info_plus: 8.0.2
-  wakelock_plus: 1.2.8
 
 dev_dependencies:
   flutter_test:

@@ -92,12 +92,12 @@ class CurrencyController extends GetxController {
 
     if (currency == null) {
       // fallback: رجع السعر بالليرة
-      return '${syFormat.format(price)} ل.س';
+      return '${syFormat.format(price)} ليرة.س';
     }
 
     if (currency['code'] == 'SYP') {
       // السعر بالليرة السورية
-      return '${syFormat.format(price)} ل.س';
+      return '${syFormat.format(price)} ليرة.س';
     } else {
       // تحويل السعر من SYP إلى العملة المختارة حسب الـ rate
       final rate = (currency['rate'] as num).toDouble();

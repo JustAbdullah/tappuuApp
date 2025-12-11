@@ -8,6 +8,7 @@ import 'package:tappuu_app/controllers/ThemeController.dart';
 import 'package:tappuu_app/core/constant/appcolors.dart';
 import 'package:tappuu_app/core/constant/app_text_styles.dart';
 import 'package:tappuu_app/core/data/model/conversation.dart' as con;
+import 'package:tappuu_app/core/data/model/AdvertiserProfile.dart';
 
 import 'ConversationScreenInMy.dart';
 
@@ -15,7 +16,8 @@ class ConversationsListScreen extends StatefulWidget {
   const ConversationsListScreen({super.key});
 
   @override
-  State<ConversationsListScreen> createState() => _ConversationsListScreenState();
+  State<ConversationsListScreen> createState() =>
+      _ConversationsListScreenState();
 }
 
 class _ConversationsListScreenState extends State<ConversationsListScreen> {
@@ -23,76 +25,136 @@ class _ConversationsListScreenState extends State<ConversationsListScreen> {
   final LoadingController _loadingController = Get.find<LoadingController>();
   final ThemeController _themeController = Get.find<ThemeController>();
 
-  // لون صحّتين القراءة (لآخر رسالة إن كانت مني)
-  static const _receiptGrey = Color(0xFF9AA0A6);
+  // لون باهت للتاريخ
+  static const _dateFaded = Color(0xFF9AA0A6);
+
+  // أبعاد صورة الإعلان (مستطيل: العرض > الارتفاع)
+  static const double _thumbWidth = 110.0;
+  static const double _thumbHeight = 70.0;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadConversations());
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _loadConversations());
   }
 
   void _loadConversations() {
     final currentUser = _loadingController.currentUser;
     if (currentUser != null) {
-      // قائمة واحدة: نطلب الكل ونرتبه حديث -> قديم
-      _chatController.fetchConversations(userId: currentUser.id ?? 0, type: 'all');
-    }
-  }
-
-  // لإظهار الوقت/أمس/التاريخ بأسلوب واتساب
-  String _formatConversationTimestamp(DateTime dt) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final thatDay = DateTime(dt.year, dt.month, dt.day);
-    final diffDays = today.difference(thatDay).inDays;
-
-    if (diffDays == 0) {
-      // اليوم -> وقت فقط
-      final hour = dt.hour;
-      final minute = dt.minute.toString().padLeft(2, '0');
-      final period = hour < 12 ? 'ص' : 'م';
-      final formattedHour = (hour == 0) ? 12 : (hour > 12 ? hour - 12 : hour);
-      return '${formattedHour.toString().padLeft(2, '0')}:$minute $period';
-    } else if (diffDays == 1) {
-      return 'أمس';
-    } else if (dt.year == now.year) {
-      return '${dt.day}/${dt.month}';
-    } else {
-      return '${dt.day}/${dt.month}/${dt.year}';
+      _chatController.fetchConversations(
+        userId: currentUser.id ?? 0,
+        type: 'all',
+      );
     }
   }
 
   // قص نص
-  String _truncateText(String text, {int maxLength = 34}) {
+  String _truncateText(String text, {int maxLength = 80}) {
     if (text.isEmpty) return text;
     if (text.length <= maxLength) return text;
     return '${text.substring(0, maxLength - 3)}...';
   }
 
-  // اعتبر "حديث" خلال آخر 24 ساعة
-  bool _isRecent(DateTime dt) {
-    final now = DateTime.now();
-    return now.difference(dt) <= const Duration(hours: 24);
+  // تنسيق تاريخ بسيط dd/MM/yyyy
+  String _formatDate(DateTime dt) {
+    final d = dt.day.toString().padLeft(2, '0');
+    final m = dt.month.toString().padLeft(2, '0');
+    final y = dt.year.toString();
+    return '$d/$m/$y';
   }
 
-  // أيقونة مقروئية على مستوى آخر رسالة بالمحادثة (لو آخر رسالة منّي)
-  Widget _conversationReadReceipt(con.Conversation c, int? currentUserId) {
-    if (c.lastMessage == null) return const SizedBox.shrink();
-    final last = c.lastMessage!;
-    final isMine = (currentUserId != null) && last.senderId == currentUserId;
-    if (!isMine) return const SizedBox.shrink();
+  // محاولة جلب صورة للإعلان
+  String? _resolveAdImageUrl(con.Ad? ad) {
+    if (ad == null) return null;
+    try {
+      final imgs = (ad.images as List?)?.cast();
+      if (imgs != null && imgs.isNotEmpty) {
+        final first = imgs.first;
+        if (first is String && first.isNotEmpty) return first;
+        if (first is Map &&
+            (first['url'] is String) &&
+            first['url'].toString().isNotEmpty) {
+          return first['url'].toString();
+        }
+      }
+    } catch (_) {}
+    try {
+      final url = (ad as dynamic).imageUrl;
+      if (url is String && url.isNotEmpty) return url;
+    } catch (_) {}
+    return null;
+  }
 
-    // تقدير: إن كان لا يوجد رسائل غير مقروءة للطرف الآخر نعتبر آخر رسالة مني قد قُرئت
-    final read = (c.unreadCount == 0);
-    return Padding(
-      padding: EdgeInsets.only(right: 6.w),
-      child: Icon(
-        Icons.done_all_rounded,
-        size: 16.sp,
-        color: read ? AppColors.buttonAndLinksColor : _receiptGrey.withOpacity(0.85),
-      ),
-    );
+  // تاريخ الإعلان أو آخر رسالة
+  DateTime _resolveAdDate(con.Conversation c) {
+    try {
+      final createdAt = (c.ad as dynamic)?.createdAt;
+      if (createdAt is DateTime) return createdAt;
+      if (createdAt is String) {
+        final parsed = DateTime.tryParse(createdAt);
+        if (parsed != null) return parsed;
+      }
+    } catch (_) {}
+    return c.lastMessageAt; // fallback
+  }
+
+  /// اسم المعلن (اسم البروفايل نفسه: فرد أو شركة)
+  String _resolveAdvertiserMainName(con.Conversation c) {
+    final adv = c.advertiser;
+    if (adv == null) return '';
+    // لو كان AdvertiserProfile (موديل قديم)
+    if (adv is AdvertiserProfile) {
+      final name = (adv.name ?? '').trim();
+      if (name.isNotEmpty) return name;
+    }
+    // موديل conversation.Advertiser (الداتا تايب الجديد)
+    try {
+      final name = ((adv as dynamic).name ?? '').toString().trim();
+      return name;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// نوع المعلن (شركة / فردي) إن توفر
+  String? _resolveAdvertiserTypeLabel(con.Conversation c) {
+    final adv = c.advertiser;
+    if (adv == null) return null;
+
+    try {
+      final t =
+          ((adv as dynamic).accountType ?? '').toString().toLowerCase().trim();
+      if (t == 'company') return 'شركة';
+      if (t == 'individual') return 'فرد';
+    } catch (_) {}
+
+    return null;
+  }
+
+  bool _isCompany(con.Conversation c) {
+    final adv = c.advertiser;
+    if (adv == null) return false;
+    try {
+      final t =
+          ((adv as dynamic).accountType ?? '').toString().toLowerCase().trim();
+      return t == 'company';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// اسم الفرد داخل الشركة (CompanyMember.displayName) إن وجد
+  String _resolveCompanyMemberName(con.Conversation c) {
+    final ad = c.ad;
+    if (ad == null) return '';
+    try {
+      final cm = ad.companyMember;
+      final name = (cm?.displayName ?? '').toString().trim();
+      return name;
+    } catch (_) {
+      return '';
+    }
   }
 
   @override
@@ -132,10 +194,11 @@ class _ConversationsListScreenState extends State<ConversationsListScreen> {
       ),
       body: Obx(() {
         if (_chatController.isLoadingConversations.value) {
-          return Center(child: CircularProgressIndicator(color: AppColors.primary));
+          return Center(
+            child: CircularProgressIndicator(color: AppColors.primary),
+          );
         }
 
-        // تأكُّد إضافي: الأحدث أولاً
         final list = [..._chatController.conversationsList];
         list.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
 
@@ -146,7 +209,7 @@ class _ConversationsListScreenState extends State<ConversationsListScreen> {
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                SizedBox(height: 80.h),
+                SizedBox(height: 60.h),
                 Center(
                   child: Text(
                     'لا توجد رسائل'.tr,
@@ -166,24 +229,24 @@ class _ConversationsListScreenState extends State<ConversationsListScreen> {
           onRefresh: () async => _loadConversations(),
           color: AppColors.primary,
           child: ListView.separated(
-            padding: EdgeInsets.symmetric(vertical: 8.h),
+            padding: EdgeInsets.symmetric(vertical: 0.h),
             itemCount: list.length,
-            separatorBuilder: (context, index) => Divider(
-              height: 1.h,
-              color: dividerColor,
-              indent: 80.w,
-              endIndent: 16.w,
+            separatorBuilder: (context, index) => Padding(
+              padding: EdgeInsets.symmetric(horizontal: 0.w),
+              child: Divider(
+                height: 0.4,
+                thickness: 0.4,
+                color: dividerColor.withOpacity(0.7),
+              ),
             ),
             itemBuilder: (context, index) {
               final conversation = list[index];
-              final highlightRecent = _isRecent(conversation.lastMessageAt);
               return _buildConversationItem(
                 conversation: conversation,
                 isDarkMode: isDarkMode,
-                baseCardColor: cardColor,
+                backgroundColor: cardColor,
                 textPrimary: textPrimary,
                 textSecondary: textSecondary,
-                highlightRecent: highlightRecent,
               );
             },
           ),
@@ -195,172 +258,210 @@ class _ConversationsListScreenState extends State<ConversationsListScreen> {
   Widget _buildConversationItem({
     required con.Conversation conversation,
     required bool isDarkMode,
-    required Color baseCardColor,
+    required Color backgroundColor,
     required Color textPrimary,
     required Color textSecondary,
-    required bool highlightRecent,
   }) {
-    final currentUserId = _loadingController.currentUser?.id;
     final hasUnread = (conversation.unreadCount > 0);
 
-    // خلفية مميّزة للمحادثات الحديثة + أقوى لو فيها غير مقروء
-    final bg = hasUnread
-        ? AppColors.primary.withOpacity(isDarkMode ? 0.15 : 0.10)
-        : (highlightRecent ? AppColors.primary.withOpacity(isDarkMode ? 0.09 : 0.06) : baseCardColor);
+    // صورة الإعلان
+    final adThumbUrl = _resolveAdImageUrl(conversation.ad);
 
-    final lastMsg = conversation.lastMessage;
+    // هل شركة؟
+    final isCompany = _isCompany(conversation);
+
+    // اسم المعلن (بروفايل رئيسي)
+    final rawAdvertiserName = _resolveAdvertiserMainName(conversation);
+
+    // اسم الفرد داخل الشركة (لو فيه)
+    final memberName = _resolveCompanyMemberName(conversation);
+
+    // نوع المعلن (شركة / فردي)
+    final advertiserType = _resolveAdvertiserTypeLabel(conversation);
+
+    // الاسم الذي سيُعرض في السطر الأول
+    String mainName = rawAdvertiserName;
+
+    if (isCompany) {
+      if (memberName.isNotEmpty) {
+        // نعرض اسم الفرد داخل الشركة فقط
+        mainName = memberName;
+      } else {
+        mainName = rawAdvertiserName;
+      }
+    }
+
+    // لو فاضي الاسم بالكامل، نسقط على اسم الشريك أو الإيميل
+    if (mainName.trim().isEmpty) {
+      final partnerName = conversation.inquirer.name?.trim();
+      if (partnerName != null && partnerName.isNotEmpty) {
+        mainName = partnerName;
+      } else {
+        mainName = conversation.inquirer.email;
+      }
+    }
+
+    // عنوان الإعلان
+    final adTitle = conversation.ad?.title ?? '';
+
+    // تاريخ المراسلة
+    final adDate = _resolveAdDate(conversation);
+
+    final Color rowColor = hasUnread
+        ? backgroundColor.withOpacity(isDarkMode ? 0.97 : 1.0)
+        : Colors.transparent;
 
     return InkWell(
       onTap: () {
-        Get.to(() => ConversationScreenInMy(
-              advertiser: conversation.advertiser,
-              ad: conversation.ad,
-              idAdv: conversation.advertiser.id,
-            ));
+        Get.to(
+          () => ConversationScreenInMy(
+            advertiser: conversation.advertiser,
+            ad: conversation.ad,
+            idAdv: conversation.advertiser.id,
+          ),
+        );
       },
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
-        color: bg,
+        color: rowColor,
+        padding: EdgeInsets.symmetric(horizontal: 7.w, vertical: 4.h),
         child: Row(
+          // RTL: الصورة على اليمين، النص في الوسط، السهم يسار
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            _buildAdvertiserAvatar(conversation.advertiser.logo),
-            SizedBox(width: 16.w),
+            // الصورة — مستطيلة (العرض > الارتفاع)
+            _buildAdThumbWide(adThumbUrl),
+            SizedBox(width: 10.w),
+
+            // النصوص في الوسط
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // السطر الأول: اسم + وقت/أمس/تاريخ + مؤشّر المقروئية لآخر رسالة (لو منّي)
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          conversation.advertiser?.name??"",
-                          style: TextStyle(
-                            fontFamily: AppTextStyles.appFontFamily,
-                            fontSize: AppTextStyles.medium,
-                            fontWeight: FontWeight.bold,
-                            color: textPrimary,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          maxLines: 1,
-                        ),
-                      ),
-                      _conversationReadReceipt(conversation, currentUserId),
-                      Text(
-                        _formatConversationTimestamp(conversation.lastMessageAt),
-                        style: TextStyle(
-                          fontFamily: AppTextStyles.appFontFamily,
-                          fontSize: AppTextStyles.small,
-                          color: textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 4.h),
-
-                  // عنوان الإعلان (إن وُجد)
-                  if (conversation.ad != null) ...[
-                    Text(
-                      conversation.ad!.title,
-                      style: TextStyle(
-                        fontFamily: AppTextStyles.appFontFamily,
-                        fontSize: AppTextStyles.small,
-                        fontWeight: FontWeight.w600,
-                        color: textPrimary,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                  // السطر الأول: اسم المعلن / الفرد داخل الشركة
+                  Text(
+                    mainName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: AppTextStyles.appFontFamily,
+                      fontSize: AppTextStyles.medium,
+                      fontWeight:
+                          hasUnread ? FontWeight.w700 : FontWeight.w500,
+                      color: textPrimary,
                     ),
-                    SizedBox(height: 4.h),
-                  ],
+                  ),
+                  SizedBox(height: 1.h),
 
-                  // آخر رسالة + أيقونة ميكروفون لو صوت + بادج غير مقروء + شارة "اليوم" إن لزم
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Row(
-                          children: [
-                            if (lastMsg?.isVoice == true) ...[
-                              Icon(Icons.mic, size: 16.sp, color: textSecondary),
-                              SizedBox(width: 6.w),
-                            ],
-                            Flexible(
-                              child: Text(
-                                lastMsg == null
-                                    ? 'بدء محادثة جديدة'.tr
-                                    : _truncateText(
-                                        lastMsg.isVoice ? '[صوت]' : (lastMsg.body ?? ''),
-                                      ),
-                                style: TextStyle(
-                                  fontFamily: AppTextStyles.appFontFamily,
-                                  fontSize: AppTextStyles.medium,
-                                  color: hasUnread ? textPrimary : textSecondary,
-                                  fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w400,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                  // عنوان الإعلان (سطرين كحد أقصى)
+                  Text(
+                    _truncateText(adTitle, maxLength: 80),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: AppTextStyles.appFontFamily,
+                      fontSize: AppTextStyles.small,
+                      fontWeight:
+                          hasUnread ? FontWeight.w800 : FontWeight.w400,
+                      color: hasUnread ? textPrimary : textSecondary,
+                    ),
+                  ),
+                  SizedBox(height: 1.h),
 
-                      // بادج غير مقروء
-                      if (hasUnread)
-                        Container(
-                          margin: EdgeInsets.only(left: 8.w),
-                          padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary,
-                            borderRadius: BorderRadius.circular(12.r),
-                          ),
-                          child: Text(
-                            conversation.unreadCount.toString(),
-                            style: TextStyle(
-                              fontFamily: AppTextStyles.appFontFamily,
-                              fontSize: AppTextStyles.small,
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-
-                      // شارة "اليوم" لو المحادثة حديثة ولا يوجد غير مقروء
-                     
-                    ],
+                  // التاريخ أسفل
+                  Text(
+                    _formatDate(adDate),
+                    style: TextStyle(
+                      fontFamily: AppTextStyles.appFontFamily,
+                      fontSize: AppTextStyles.small,
+                      color:
+                          _dateFaded.withOpacity(isDarkMode ? 0.9 : 0.8),
+                    ),
                   ),
                 ],
               ),
             ),
+
             SizedBox(width: 8.w),
-            Icon(Icons.arrow_forward_ios, size: 18.sp, color: textSecondary),
+
+            // نوع المعلن + مؤشر الرسائل غير المقروءة + السهم
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (advertiserType != null && advertiserType.isNotEmpty)
+                  Padding(
+                    padding: EdgeInsets.only(bottom: 4.h),
+                    child: Text(
+                      advertiserType,
+                      style: TextStyle(
+                        fontFamily: AppTextStyles.appFontFamily,
+                        fontSize: AppTextStyles.small,
+                        color: textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                if (hasUnread)
+                  Container(
+                    width: 8.w,
+                    height: 8.w,
+                    margin: EdgeInsets.only(bottom: 4.h),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                Icon(
+                  Icons.arrow_forward_ios,
+                  size: 16.sp,
+                  color: textSecondary,
+                ),
+              ],
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildAdvertiserAvatar(String? logoUrl) {
+  // صورة إعلان مستطيلة (العرض > الارتفاع) في اليمين
+  Widget _buildAdThumbWide(String? url) {
     return Container(
-      width: 56.w,
-      height: 56.w,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        color: Color(0xFFE0E0E0),
+      width: _thumbWidth.w,
+      height: _thumbHeight.h,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F5F5),
+        borderRadius: BorderRadius.circular(0.r),
       ),
-      child: ClipOval(
-        child: (logoUrl != null && logoUrl.isNotEmpty)
-            ? Image.network(
-                logoUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Center(
-                  child: Icon(Icons.person, size: 24.sp, color: AppColors.greyDark),
-                ),
-              )
-            : Center(
-                child: Icon(Icons.person, size: 24.sp, color: AppColors.greyDark),
-              ),
+      clipBehavior: Clip.hardEdge,
+      child: (url != null && url.isNotEmpty)
+          ? Image.network(
+              url,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) =>
+                  const _AdThumbPlaceholder(),
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) return child;
+                return const _AdThumbPlaceholder(isLoading: true);
+              },
+            )
+          : const _AdThumbPlaceholder(),
+    );
+  }
+}
+
+class _AdThumbPlaceholder extends StatelessWidget {
+  final bool isLoading;
+  const _AdThumbPlaceholder({this.isLoading = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Icon(
+        isLoading ? Icons.downloading_rounded : Icons.image_outlined,
+        size: 22,
+        color: Colors.grey.shade500,
       ),
     );
   }

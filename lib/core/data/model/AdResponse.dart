@@ -356,6 +356,7 @@ class CompanyMember {
   final String? whatsappPhone;
   final String? whatsappCallNumber;
   final String status; // 'active' | 'removed'
+  final String ?AvatarUrl;
 
   CompanyMember({
     required this.id,
@@ -367,6 +368,7 @@ class CompanyMember {
     this.whatsappPhone,
     this.whatsappCallNumber,
     required this.status,
+    required this.AvatarUrl,
   });
 
   factory CompanyMember.fromJson(Map<String, dynamic> json) {
@@ -384,6 +386,9 @@ class CompanyMember {
       whatsappCallNumber: (json['whatsapp_call_number'] as String?) ??
           json['whatsappCallNumber'] as String?,
       status: (json['status'] as String?) ?? '',
+            AvatarUrl: (json['AvatarUrl'] as String?) ?? '',
+
+      
     );
   }
 

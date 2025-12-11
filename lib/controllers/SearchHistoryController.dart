@@ -92,101 +92,161 @@ class SearchHistoryController extends GetxController {
       isLoadingHistory.value = false;
     }
   }
+/// إضافة سجل جديد
+Future<bool> addSearchHistory({
+  required int userId,
+  required String recordName,
+  required int categoryId,
+  int? subcategoryId,
+  int? secondSubcategoryId,
+  bool notifyPhone = false,
+  bool notifyEmail = false,
+}) async {
+  isSaving.value = true;
+  try {
+    final uri = Uri.parse('$_baseUrl/search-history');
+    final body = {
+      'user_id': userId,
+      'record_name': recordName,
+      'category_id': categoryId,
+      'subcategory_id': subcategoryId,
+      'second_subcategory_id': secondSubcategoryId,
+      'notify_phone': notifyPhone ? 1 : 0,
+      'notify_email': notifyEmail ? 1 : 0,
+    };
+    final res = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(body),
+    );
 
-  /// إضافة سجل جديد
-  Future<bool> addSearchHistory({
-    required int userId,
-    required String recordName,
-    required int categoryId,
-    int? subcategoryId,
-    int? secondSubcategoryId,
-    bool notifyPhone = false,
-    bool notifyEmail = false,
-  }) async {
-    isSaving.value = true;
-    try {
-      final uri = Uri.parse('$_baseUrl/search-history');
-      final body = {
-        'user_id': userId,
-        'record_name': recordName,
-        'category_id': categoryId,
-        'subcategory_id': subcategoryId,
-        'second_subcategory_id': secondSubcategoryId,
-        'notify_phone': notifyPhone ? 1 : 0,
-        'notify_email': notifyEmail ? 1 : 0,
-      };
-      final res = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
+    if (res.statusCode == 200) {
+      final result = json.decode(res.body) as Map<String, dynamic>;
+      if (result['success'] == true) {
+        // ✅ سناك بار نجاح بتصميم احترافي
+        _showSearchHistorySnack(
+          title: 'نجاح'.tr,
+          message: 'تم حفظ سجل البحث بنجاح'.tr,
+          startColor: const Color(0xFF22C55E), // أخضر فاتح
+          endColor: const Color(0xFF16A34A),   // أخضر أغمق
+          icon: Icons.check_circle_rounded,
+        );
 
-      if (res.statusCode == 200) {
-        final result = json.decode(res.body) as Map<String, dynamic>;
-        if (result['success'] == true) {
-          Get.snackbar('نجاح'.tr, 'تم حفظ سجل البحث بنجاح'.tr);
-
-          // محاولة إضافة العنصر محليًا: إذا رجع السيرفر بيانات العنصر الجديد ضفها،
-          // وإلا أعد جلب السجل كاملاً من السيرفر.
-          try {
-            if (result['data'] != null) {
-              // متوقع أن 'data' يحتوي على السجل الجديد
-              final newRecord = SearchHistory.fromJson(result['data'] as Map<String, dynamic>);
-              // تجنّب التكرار: إذا موجود بنفس id لا نضيف
-              if (!searchHistoryList.any((r) => r.id == newRecord.id)) {
-                searchHistoryList.insert(0, newRecord); // أدخله في بداية القائمة
-                debugPrint('addSearchHistory: inserted new record locally id=${newRecord.id}');
-              }
-            } else {
-              // لو لم يعد السيرفر العنصر، أعد جلب القائمة
-              await fetchSearchHistory(userId: userId);
+        // محاولة إضافة العنصر محليًا
+        try {
+          if (result['data'] != null) {
+            final newRecord =
+                SearchHistory.fromJson(result['data'] as Map<String, dynamic>);
+            if (!searchHistoryList.any((r) => r.id == newRecord.id)) {
+              searchHistoryList.insert(0, newRecord);
+              debugPrint(
+                  'addSearchHistory: inserted new record locally id=${newRecord.id}');
             }
-          } catch (e, st) {
-            debugPrint('Warning: failed to parse or insert server returned record: $e\n$st');
+          } else {
             await fetchSearchHistory(userId: userId);
           }
+        } catch (e, st) {
+          debugPrint(
+              'Warning: failed to parse or insert server returned record: $e\n$st');
+          await fetchSearchHistory(userId: userId);
+        }
 
-          // إذا هذا السجل يطلب إشعارات الهاتف، نطلب من LoadingController التحقق/الاشتراك
-          if (notifyPhone) {
-            if (Get.isRegistered<LoadingController>()) {
-              final loadingCtrl = Get.find<LoadingController>();
-              await loadingCtrl.handleAfterRecordChange(
-                userId: userId,
-                affectedCategoryId: categoryId,
-              );
-              // طباعة حالة الاشتراكات بعد العملية
-              await loadingCtrl.printSavedTopics();
-            } else {
-              // fallback: اشتراك محلي بسيط (نادر الحدوث لأن LoadingController عادة مسجل)
-              try {
-                final fcmTopic = 'category_${categoryId.toString()}';
-                await FirebaseMessaging.instance.subscribeToTopic(fcmTopic);
-                final saved = await _getSavedTopics();
-                saved.add(categoryId.toString());
-                await _saveTopics(saved);
-                debugPrint('Fallback subscribe to $fcmTopic');
-              } catch (e) {
-                debugPrint('Fallback subscribe failed for category_${categoryId.toString()}: $e');
-              }
+        // لو في إشعارات هاتف
+        if (notifyPhone) {
+          if (Get.isRegistered<LoadingController>()) {
+            final loadingCtrl = Get.find<LoadingController>();
+            await loadingCtrl.handleAfterRecordChange(
+              userId: userId,
+              affectedCategoryId: categoryId,
+            );
+            await loadingCtrl.printSavedTopics();
+          } else {
+            try {
+              final fcmTopic = 'category_${categoryId.toString()}';
+              await FirebaseMessaging.instance.subscribeToTopic(fcmTopic);
+              final saved = await _getSavedTopics();
+              saved.add(categoryId.toString());
+              await _saveTopics(saved);
+              debugPrint('Fallback subscribe to $fcmTopic');
+            } catch (e) {
+              debugPrint(
+                  'Fallback subscribe failed for category_${categoryId.toString()}: $e');
             }
           }
-
-          return true;
-        } else {
-          Get.snackbar('فشل'.tr, 'لم يتم حفظ سجل البحث'.tr);
-          debugPrint('addSearchHistory: success == false, body: ${res.body}');
         }
+
+        return true;
       } else {
-        debugPrint('Error adding search history: ${res.statusCode}');
-        debugPrint('Body: ${res.body}');
+        // ❌ السرفر رجع success = false
+        _showSearchHistorySnack(
+          title: 'فشل'.tr,
+          message: 'لم يتم حفظ سجل البحث'.tr,
+          startColor: const Color(0xFFEF4444),
+          endColor: const Color(0xFFDC2626),
+          icon: Icons.error_outline_rounded,
+        );
+        debugPrint('addSearchHistory: success == false, body: ${res.body}');
       }
-    } catch (e, st) {
-      debugPrint('Exception addSearchHistory: $e\n$st');
-    } finally {
-      isSaving.value = false;
+    } else {
+      debugPrint('Error adding search history: ${res.statusCode}');
+      debugPrint('Body: ${res.body}');
+      _showSearchHistorySnack(
+        title: 'خطأ'.tr,
+        message: 'حدث خطأ أثناء حفظ سجل البحث، حاول لاحقاً'.tr,
+        startColor: const Color(0xFFEF4444),
+        endColor: const Color(0xFFDC2626),
+        icon: Icons.error_outline_rounded,
+      );
     }
-    return false;
+  } catch (e, st) {
+    debugPrint('Exception addSearchHistory: $e\n$st');
+   
+  } finally {
+    isSaving.value = false;
   }
+  return false;
+}
+
+// سناك بار عام بتصميم احترافي (نجاح / خطأ / تنبيه)
+void _showSearchHistorySnack({
+  required String title,
+  required String message,
+  Color? startColor,
+  Color? endColor,
+  IconData icon = Icons.info_outline_rounded,
+}) {
+  final Color c1 = startColor ?? const Color(0xFF0EA5E9); // أزرق فاتح
+  final Color c2 = endColor   ?? const Color(0xFF0369A1); // أزرق أغمق
+
+  try {
+    Get.closeAllSnackbars();
+  } catch (_) {}
+
+  Get.snackbar(
+    title,
+    message,
+    snackPosition: SnackPosition.TOP,
+    snackStyle: SnackStyle.FLOATING,
+    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    borderRadius: 16,
+    backgroundGradient: LinearGradient(colors: [c1, c2]),
+    colorText: Colors.white,
+    icon: Icon(icon, color: Colors.white, size: 22),
+    shouldIconPulse: false,
+    barBlur: 12,
+    isDismissible: true,
+    duration: const Duration(seconds: 3),
+    maxWidth: 480,
+    boxShadows: [
+      BoxShadow(
+        color: Colors.black.withOpacity(0.15),
+        blurRadius: 16,
+        offset: const Offset(0, 6),
+      ),
+    ],
+  );
+}
+
 
   /// حذف سجل واحد
   Future<bool> deleteSearchHistory({

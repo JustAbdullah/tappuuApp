@@ -1,17 +1,15 @@
 // lib/core/controllers/editable_text_controller.dart
 import 'dart:io';
-import 'package:flutter/services.dart' as ser;
-import 'package:mime/mime.dart';
-import 'package:http_parser/http_parser.dart';
-
 import 'dart:convert';
 import 'dart:typed_data';
-import 'dart:ui' as ui;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/services.dart' as ser;
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
+import 'package:mime/mime.dart';
+import 'package:http_parser/http_parser.dart';
 
 import '../core/data/model/EditableTextModel.dart';
 
@@ -32,8 +30,7 @@ class EditableTextController extends GetxController {
   // توليد اسم عائلة الخط لكل مفتاح
   String _familyForKey(String keyName) => 'editable_font_$keyName';
 
-  // تحويل HEX إلى Color (ممكن تستخدم لاحقًا في الواجهات)
-  // لو تحتاج Color هنا، استورد material في الملف المستدعي.
+  // تحويل HEX إلى Color
   Color hexToColor(String hex) {
     final clean = hex.replaceAll('#', '');
     final full = (clean.length == 6) ? 'FF$clean' : clean;
@@ -84,7 +81,9 @@ class EditableTextController extends GetxController {
       final uri = Uri.parse(url);
       final res = await http.get(uri);
       if (res.statusCode != 200) {
-        if (kDebugMode) debugPrint('Font download failed (${res.statusCode}) for ${item.keyName}');
+        if (kDebugMode) {
+          debugPrint('Font download failed (${res.statusCode}) for ${item.keyName}');
+        }
         _loadingFontFamilies.remove(family);
         return;
       }
@@ -97,6 +96,9 @@ class EditableTextController extends GetxController {
 
       _loadedFontFamilies.add(family);
       if (kDebugMode) debugPrint('Loaded font for ${item.keyName} => family=$family');
+
+      // إشعار الواجهة لتعيد البناء بالخطّ الجديد
+      items.refresh();
     } catch (e) {
       if (kDebugMode) debugPrint('Error loading font for ${item.keyName}: $e');
     } finally {
@@ -115,9 +117,13 @@ class EditableTextController extends GetxController {
         final parsed = body.isNotEmpty ? (await Future(() => jsonDecode(body))) : null;
         if (parsed is Map && parsed['data'] != null && parsed['data'] is List) {
           final list = parsed['data'] as List;
-          items.value = list.map((e) => EditableTextModel.fromJson(e as Map<String, dynamic>)).toList();
+          items.value = list
+              .map((e) => EditableTextModel.fromJson(e as Map<String, dynamic>))
+              .toList();
         } else if (parsed is List) {
-          items.value = parsed.map((e) => EditableTextModel.fromJson(e as Map<String, dynamic>)).toList();
+          items.value = parsed
+              .map((e) => EditableTextModel.fromJson(e as Map<String, dynamic>))
+              .toList();
         } else {
           items.clear();
           if (kDebugMode) debugPrint('editable-texts: unexpected payload: $parsed');
@@ -141,10 +147,13 @@ class EditableTextController extends GetxController {
         final data = parsed is Map && parsed['data'] != null ? parsed['data'] : parsed;
         if (data is Map<String, dynamic>) {
           final model = EditableTextModel.fromJson(data);
-          // update local list
+          // update local list (إعادة إسناد بمؤشر يضمن إعادة البناء)
           final idx = items.indexWhere((e) => e.id == model.id);
-          if (idx != -1) items[idx] = model;
-          else items.insert(0, model);
+          if (idx != -1) {
+            items[idx] = model;
+          } else {
+            items.insert(0, model);
+          }
           return model;
         }
       }
@@ -170,9 +179,13 @@ class EditableTextController extends GetxController {
         });
         final mime = lookupMimeType(fontFile.path) ?? 'application/octet-stream';
         final parts = mime.split('/');
-        final mf = http.MultipartFile.fromBytes('font_file', await fontFile.readAsBytes(),
-            filename: fontFile.path.split('/').last, contentType: MediaType(parts[0], parts[1]));
-        req.files.add(await mf);
+        final mf = http.MultipartFile.fromBytes(
+          'font_file',
+          await fontFile.readAsBytes(),
+          filename: fontFile.path.split('/').last,
+          contentType: MediaType(parts[0], parts[1]),
+        );
+        req.files.add(mf);
         final streamed = await req.send();
         final res = await http.Response.fromStream(streamed);
         if (res.statusCode == 201 || res.statusCode == 200) {
@@ -186,9 +199,11 @@ class EditableTextController extends GetxController {
         }
       } else {
         // JSON post
-        final res = await http.post(uri,
-            headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-            body: jsonEncode(payload));
+        final res = await http.post(
+          uri,
+          headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+          body: jsonEncode(payload),
+        );
         if (res.statusCode == 201 || res.statusCode == 200) {
           final parsed = jsonDecode(res.body);
           final data = parsed['data'] ?? parsed;
@@ -196,7 +211,9 @@ class EditableTextController extends GetxController {
           items.insert(0, model);
           return model;
         } else {
-          if (kDebugMode) debugPrint('create editable-text JSON failed: ${res.statusCode} ${res.body}');
+          if (kDebugMode) {
+            debugPrint('create editable-text JSON failed: ${res.statusCode} ${res.body}');
+          }
         }
       }
     } catch (e) {
@@ -207,5 +224,28 @@ class EditableTextController extends GetxController {
     return null;
   }
 
- 
+  // ====== دوال تعديل فورية تضمن إعادة البناء ======
+  void setText(String key, String text) {
+    final idx = items.indexWhere((e) => e.keyName == key);
+    if (idx == -1) return;
+    final it = items[idx];
+    items[idx] = it.copyWith(textContent: text);
+  }
+
+  void setFontSize(String key, int size) {
+    final idx = items.indexWhere((e) => e.keyName == key);
+    if (idx == -1) return;
+    final it = items[idx];
+    items[idx] = it.copyWith(fontSize: size);
+  }
+
+  void setColor(String key, String hex) {
+    final idx = items.indexWhere((e) => e.keyName == key);
+    if (idx == -1) return;
+    final it = items[idx];
+    items[idx] = it.copyWith(color: hex);
+  }
+
+  // لو تم تعديل الكائن in-place في مكان آخر
+  void forceRefresh() => items.refresh();
 }

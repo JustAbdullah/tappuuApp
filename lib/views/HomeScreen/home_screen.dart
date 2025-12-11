@@ -128,7 +128,7 @@ void initState() {
               pinned: true,
               floating: false,
               expandedHeight: 0,
-              toolbarHeight: 60.h,
+              toolbarHeight:56.h,
               backgroundColor: AppColors.appBar(isDarkMode),
               flexibleSpace:  Directionality(
           textDirection: TextDirection.ltr, // نجبر اتجاه اليسار - يمين هنا فقط
@@ -679,7 +679,7 @@ Widget _buildSearchField(bool isDarkMode) {
             ),
             
             // أيقونة البحث بالصورة
-            InkWell(
+         /*   InkWell(
               onTap: () {
                 Get.to(() => AdsScreen(
                     categoryId: null,
@@ -695,7 +695,7 @@ Widget _buildSearchField(bool isDarkMode) {
                   size: 24.w,
                 ),
               ),
-            ),
+            ),*/
             
             // أيقونة البحث الصوتي
             InkWell(
@@ -816,7 +816,7 @@ Widget _buildSearchField(bool isDarkMode) {
   return   Directionality(
           textDirection: TextDirection.rtl, // نجبر اتجاه اليسار - يمين هنا فقط
           child:  Container(
-      height: 70.h,
+      height: 56.h,
       padding: EdgeInsets.symmetric(horizontal: 12.w,vertical: 5.h),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.start,
@@ -837,12 +837,11 @@ Widget _buildSearchField(bool isDarkMode) {
             ),
           ),  SizedBox(width: 15.w),
       Padding(
-                  padding:  EdgeInsets.only(top: 7.h),
+                  padding:  EdgeInsets.only(top: 0.h),
                   child:EditableTextWidget(
   keyName: 'mainTitle',
   textAlign: TextAlign.center,
   fontWeight: FontWeight.w500,
-  height: 0.5.h,
 ),
                 ),
           SizedBox(width: 0.w),

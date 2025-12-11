@@ -1,7 +1,6 @@
+// lib/desktop_or_web/widgets/login_popup.dart
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:tappuu_app/core/constant/images_path.dart';
 
 import '../../../controllers/ThemeController.dart';
 import '../../../controllers/AuthController.dart';
@@ -10,6 +9,9 @@ import '../../../core/constant/appcolors.dart';
 import '../../AuthScreen/ResetPasswordScreen.dart';
 import '../../AuthScreen/SignupScreen.dart';
 
+// reCAPTCHA v3 (Mini WebView 1×1)
+import '../../../core/recaptcha/recaptcha_mini_webview.dart';
+
 class LoginPopup extends StatefulWidget {
   const LoginPopup({super.key});
 
@@ -17,215 +19,229 @@ class LoginPopup extends StatefulWidget {
   State<LoginPopup> createState() => _LoginPopupState();
 }
 
-class _LoginPopupState extends State<LoginPopup> {
+class _LoginPopupState extends State<LoginPopup>
+    with AutomaticKeepAliveClientMixin<LoginPopup> {
+  // دومين صفحة reCAPTCHA v3 — تولّد التوكن وتخزّنه في RecaptchaTokenCache
+  static const String kRecaptchaBaseUrl =
+      'https://testing.arabiagroup.net/recaptcha.html';
+
+  // نثبّت نسخة واحدة من الودجت ونمنع إعادة إنشائه مع أي setState
+  late final Widget _recaptcha = const RecaptchaMiniWebView(
+    key: ValueKey('recaptcha_login_v3'),
+    baseUrl: kRecaptchaBaseUrl,
+    action: 'login',
+    invisible: true, // 1×1 + Opacity≈0 + IgnorePointer
+  );
+
+  @override
+  bool get wantKeepAlive => true;
+
+  final _formKey = GlobalKey<FormState>();
+
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _authC = Get.put(AuthController());
+
+  late final AuthController _authC = Get.isRegistered<AuthController>()
+      ? Get.find<AuthController>()
+      : Get.put(AuthController());
+
+  final _emailFocus = FocusNode();
+  final _passwordFocus = FocusNode();
 
   bool _obscurePassword = true;
-  bool _isLoading = false;
+
+  bool _isDark(BuildContext context) {
+    try {
+      final themeC = Get.find<ThemeController>();
+      return themeC.isDarkMode.value;
+    } catch (_) {
+      return Theme.of(context).brightness == Brightness.dark;
+    }
+  }
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _emailFocus.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Get.find<ThemeController>().isDarkMode.value;
+    super.build(context); // مهم مع AutomaticKeepAliveClientMixin
+    final isDarkMode = _isDark(context);
 
     return Scaffold(
       backgroundColor: AppColors.background(isDarkMode),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 16.h),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // زر العودة
-              IconButton(
-                icon: Icon(Icons.arrow_back, size: 24.w, 
-                  color: AppColors.textPrimary(isDarkMode)),
-                onPressed: () => Get.back(),
-                padding: EdgeInsets.zero,
-              ),
-              SizedBox(height: 16.h),
-              
-              // العنوان الرئيسي
-              Text(
-                'تسجيل الدخول'.tr,
-                style: TextStyle(
-                  fontSize: AppTextStyles.xxxlarge,
-
-                  fontWeight: FontWeight.bold,
-                  fontFamily: AppTextStyles.appFontFamily,
-                  color: AppColors.primary,
-                ),
-              ),
-              SizedBox(height: 4.h),
-              
-              // وصف التطبيق
-              Text(
-                'سجل دخولك لاستئناف تجربتك'.tr,
-                style: TextStyle(
-                  fontSize: AppTextStyles.medium,
-
-                  fontFamily: AppTextStyles.appFontFamily,
-                  color: AppColors.textSecondary(isDarkMode),
-                ),
-              ),
-              SizedBox(height: 24.h),
-              
-              // حقل البريد الإلكتروني
-              _buildInputField(
-                label: 'البريد الإلكتروني'.tr,
-                controller: _emailController,
-                icon: Icons.email_outlined,
-                keyboardType: TextInputType.emailAddress,
-                isDarkMode: isDarkMode,
-              ),
-              SizedBox(height: 16.h),
-              
-              // حقل كلمة المرور
-              _buildPasswordField(isDarkMode),
-              SizedBox(height: 8.h),
-              
-              // نسيت كلمة المرور؟
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: () {
-                    Get.to(()=>ResetPasswordScreen());
-                  },
-                  child: Text(
-                    'نسيت كلمة المرور؟'.tr,
-                    style: TextStyle(
-                      fontSize: AppTextStyles.small,
-
-                      fontWeight: FontWeight.w600,
-                      fontFamily: AppTextStyles.appFontFamily,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    minimumSize: Size.zero,
-                  ),
-                ),
-              ),
-              SizedBox(height: 24.h),
-              
-              // زر تسجيل الدخول
-              ElevatedButton(
-                onPressed: _isLoading ? null : _login,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: AppColors.onPrimary,
-                  minimumSize: Size(double.infinity, 48.h),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12.r),
-                  ),
-                  elevation: 2,
-                  shadowColor: AppColors.primary.withOpacity(0.4),
-                ),
-                child: _isLoading
-                  ? SizedBox(
-                      width: 24.w,
-                      height: 24.h,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: AppColors.onPrimary,
+        child: Stack(
+          children: [
+            // ===================== UI =====================
+            SingleChildScrollView(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+              child: AutofillGroup(
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          Icons.arrow_back,
+                          size: 24.0,
+                          color: AppColors.textPrimary(isDarkMode),
+                        ),
+                        onPressed: () => Get.back(),
+                        padding: EdgeInsets.zero,
                       ),
-                    )
-                  : Text(
-                      'تسجيل الدخول'.tr,
-                      style: TextStyle(
-                        fontSize: AppTextStyles.large,
+                      const SizedBox(height: 16.0),
 
-                        fontWeight: FontWeight.bold,
-                        fontFamily: AppTextStyles.appFontFamily,
+                      Text(
+                        'تسجيل الدخول',
+                        style: TextStyle(
+                          fontSize: AppTextStyles.xxxlarge,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: AppTextStyles.appFontFamily,
+                          color: AppColors.primary,
+                        ),
                       ),
-                    ),
-              ),
-              SizedBox(height: 20.h),
-              
-              // فصل
-              Row(
-                children: [
-                  Expanded(
-                    child: Divider(
-                      thickness: 1, 
-                      color: AppColors.grey.withOpacity(0.3),
-                  )),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 10.w),
-                    child: Text(
-                      'أو'.tr,
-                      style: TextStyle(
-                        fontSize: AppTextStyles.small,
+                      const SizedBox(height: 4.0),
 
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textSecondary(isDarkMode),
+                      Text(
+                        'سجل دخولك لاستئناف تجربتك',
+                        style: TextStyle(
+                          fontSize: AppTextStyles.medium,
+                          fontFamily: AppTextStyles.appFontFamily,
+                          color: AppColors.textSecondary(isDarkMode),
+                        ),
                       ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Divider(
-                      thickness: 1, 
-                      color: AppColors.grey.withOpacity(0.3),
-                   ) ),
-                ],
-              ),
-            /*  SizedBox(height: 20.h),
-              
-              // تسجيل الدخول عبر جوجل
-              _buildSocialButton(
-                icon: Icons.g_mobiledata,
-                text: 'تسجيل الدخول باستخدام Google'.tr,
-                onPressed: () {
-                _authC.signInWithGoogle();
-                },
-                isDarkMode: isDarkMode,
-              ),*/
-              SizedBox(height: 20.h),
-              
-              // رابط إنشاء حساب
-              Center(
-                child: TextButton(
-                  onPressed: () {
-                    Get.back();
-                    Get.to(() => SignupScreen());
-                  },
-                  child: RichText(
-                    text: TextSpan(
-                      text: 'ليس لديك حساب؟ '.tr,
-                      style: TextStyle(
-                        fontSize: AppTextStyles.medium,
+                      const SizedBox(height: 24.0),
 
-                        fontWeight: FontWeight.w500,
-                        fontFamily: AppTextStyles.appFontFamily,
-                        color: AppColors.textSecondary(isDarkMode),
+                      _buildInputField(
+                        label: 'البريد الإلكتروني',
+                        controller: _emailController,
+                        icon: Icons.email_outlined,
+                        keyboardType: TextInputType.emailAddress,
+                        isDarkMode: isDarkMode,
+                        focusNode: _emailFocus,
+                        autofillHints: const [
+                          AutofillHints.username,
+                          AutofillHints.email,
+                        ],
+                        validator: (v) {
+                          final text = (v ?? '').trim();
+                          if (text.isEmpty) return 'أدخل البريد الإلكتروني';
+                          if (!text.contains('@') || !text.contains('.')) {
+                            return 'بريد إلكتروني غير صالح';
+                          }
+                          return null;
+                        },
+                        onFieldSubmitted: (_) => _passwordFocus.requestFocus(),
                       ),
-                      children: [
-                        TextSpan(
-                          text: 'إنشاء حساب جديد'.tr,
-                          style: TextStyle(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.bold,
-                            fontSize: AppTextStyles.medium,
+                      const SizedBox(height: 16.0),
 
+                      _buildPasswordField(isDarkMode),
+                      const SizedBox(height: 8.0),
+
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          onPressed: () =>
+                              Get.to(() => const ResetPasswordScreen()),
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: Size.zero,
+                          ),
+                          child: Text(
+                            'نسيت كلمة المرور؟',
+                            style: TextStyle(
+                              fontSize: AppTextStyles.small,
+                              fontWeight: FontWeight.w600,
+                              fontFamily: AppTextStyles.appFontFamily,
+                              color: AppColors.primary,
+                            ),
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 24.0),
+
+                      Obx(() {
+                        final loading = _authC.isLoggingIn.value;
+                        return ElevatedButton(
+                          onPressed: loading ? null : _login,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: AppColors.onPrimary,
+                            minimumSize: const Size(double.infinity, 48.0),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12.0),
+                            ),
+                            elevation: 2,
+                            shadowColor:
+                                AppColors.primary.withOpacity(0.35),
+                          ),
+                          child: loading
+                              ? const SizedBox(
+                                  width: 24.0,
+                                  height: 24.0,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2.5),
+                                )
+                              : Text(
+                                  'تسجيل الدخول',
+                                  style: TextStyle(
+                                    fontSize: AppTextStyles.large,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: AppTextStyles.appFontFamily,
+                                  ),
+                                ),
+                        );
+                      }),
+                      const SizedBox(height: 24.0),
+
+                      Center(
+                        child: TextButton(
+                          onPressed: () {
+                            Get.back();
+                            Get.to(() => const SignupScreen());
+                          },
+                          child: RichText(
+                            text: TextSpan(
+                              text: 'ليس لديك حساب؟ ',
+                              style: TextStyle(
+                                fontSize: AppTextStyles.medium,
+                                fontWeight: FontWeight.w500,
+                                fontFamily: AppTextStyles.appFontFamily,
+                                color: AppColors.textSecondary(isDarkMode),
+                              ),
+                              children: [
+                                TextSpan(
+                                  text: 'إنشاء حساب جديد',
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: AppTextStyles.medium,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10.0),
+                    ],
                   ),
                 ),
               ),
-              SizedBox(height: 10.h),
-            ],
-          ),
+            ),
+
+            // ===================== reCAPTCHA v3 Mini (1×1) =====================
+            // نسخة واحدة ثابتة داخل الـ Stack — لا تعيد البناء ولا تغطي اللمس
+            Positioned.fill(child: _recaptcha),
+          ],
         ),
       ),
     );
@@ -237,6 +253,10 @@ class _LoginPopupState extends State<LoginPopup> {
     required IconData icon,
     required TextInputType keyboardType,
     required bool isDarkMode,
+    FocusNode? focusNode,
+    Iterable<String>? autofillHints,
+    String? Function(String?)? validator,
+    ValueChanged<String>? onFieldSubmitted,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,42 +266,45 @@ class _LoginPopupState extends State<LoginPopup> {
           style: TextStyle(
             fontFamily: AppTextStyles.appFontFamily,
             fontSize: AppTextStyles.medium,
-
             fontWeight: FontWeight.w600,
             color: AppColors.textPrimary(isDarkMode),
           ),
         ),
-        SizedBox(height: 6.h),
-        TextField(
+        const SizedBox(height: 6.0),
+        TextFormField(
           controller: controller,
+          focusNode: focusNode,
           keyboardType: keyboardType,
+          autofillHints: autofillHints,
+          textInputAction: TextInputAction.next,
+          onFieldSubmitted: onFieldSubmitted,
           style: TextStyle(
             fontSize: AppTextStyles.medium,
-
             color: AppColors.textPrimary(isDarkMode),
           ),
+          validator: validator,
           decoration: InputDecoration(
             prefixIcon: Icon(
               icon,
-              size: 22.w,
+              size: 22.0,
               color: AppColors.textSecondary(isDarkMode),
             ),
             filled: true,
             fillColor: AppColors.surface(isDarkMode),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10.r),
+              borderRadius: BorderRadius.circular(10.0),
               borderSide: BorderSide(color: AppColors.divider(isDarkMode)),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10.r),
+              borderRadius: BorderRadius.circular(10.0),
               borderSide: BorderSide(color: AppColors.divider(isDarkMode)),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10.r),
+              borderRadius: BorderRadius.circular(10.0),
               borderSide: BorderSide(color: AppColors.primary, width: 1.2),
             ),
-            contentPadding: EdgeInsets.symmetric(
-              horizontal: 14.w, vertical: 14.h),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 14.0, vertical: 14.0),
           ),
         ),
       ],
@@ -293,155 +316,104 @@ class _LoginPopupState extends State<LoginPopup> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'كلمة المرور'.tr,
+          'كلمة المرور',
           style: TextStyle(
             fontFamily: AppTextStyles.appFontFamily,
             fontSize: AppTextStyles.medium,
-
             fontWeight: FontWeight.w600,
             color: AppColors.textPrimary(isDarkMode),
           ),
         ),
-        SizedBox(height: 6.h),
-        TextField(
+        const SizedBox(height: 6.0),
+        TextFormField(
           controller: _passwordController,
+          focusNode: _passwordFocus,
           obscureText: _obscurePassword,
+          autofillHints: const [AutofillHints.password],
+          textInputAction: TextInputAction.done,
+          onFieldSubmitted: (_) => _login(),
           style: TextStyle(
             fontSize: AppTextStyles.medium,
-
             color: AppColors.textPrimary(isDarkMode),
           ),
+          validator: (v) {
+            final text = (v ?? '').trim();
+            if (text.isEmpty) return 'أدخل كلمة المرور';
+            if (text.length < 6) return 'الحد الأدنى 6 أحرف';
+            return null;
+          },
           decoration: InputDecoration(
             prefixIcon: Icon(
               Icons.lock_outlined,
-              size: 22.w,
+              size: 22.0,
               color: AppColors.textSecondary(isDarkMode),
             ),
             suffixIcon: IconButton(
               icon: Icon(
                 _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                size: 22.w,
+                size: 22.0,
                 color: AppColors.textSecondary(isDarkMode),
               ),
-              onPressed: () {
-                setState(() {
-                  _obscurePassword = !_obscurePassword;
-                });
-              },
+              onPressed: () =>
+                  setState(() => _obscurePassword = !_obscurePassword),
             ),
             filled: true,
             fillColor: AppColors.surface(isDarkMode),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10.r),
+              borderRadius: BorderRadius.circular(10.0),
               borderSide: BorderSide(color: AppColors.divider(isDarkMode)),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10.r),
+              borderRadius: BorderRadius.circular(10.0),
               borderSide: BorderSide(color: AppColors.divider(isDarkMode)),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10.r),
+              borderRadius: BorderRadius.circular(10.0),
               borderSide: BorderSide(color: AppColors.primary, width: 1.2),
             ),
-            contentPadding: EdgeInsets.symmetric(
-              horizontal: 14.w, vertical: 14.h),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 14.0, vertical: 14.0),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildSocialButton({
-    required IconData icon,
-    required String text,
-    required VoidCallback onPressed,
-    required bool isDarkMode,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: isDarkMode ? Colors.grey[900] : Colors.white,
-        borderRadius: BorderRadius.circular(10.r),
-        border: Border.all(
-          color: AppColors.grey.withOpacity(0.2),
-          width: 1,
-        ),
-      ),
-      child: TextButton(
-        onPressed: onPressed,
-        style: TextButton.styleFrom(
-          minimumSize: Size(double.infinity, 50.h),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10.r),
-          ),
-          padding: EdgeInsets.symmetric(horizontal: 16.w),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 30.w,
-              color: AppColors.primary,
-            ),
-            SizedBox(width: 10.w),
-            Flexible(
-              child: Text(
-                text,
-                style: TextStyle(
-                  fontSize: AppTextStyles.medium,
-
-                  fontWeight: FontWeight.w600,
-                  fontFamily: AppTextStyles.appFontFamily,
-                  color: AppColors.textPrimary(isDarkMode),
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _login() async {
-    if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
-      Get.snackbar(
-        'الحقول مطلوبة'.tr,
-        'يرجى ملء جميع الحقول'.tr,
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: AppColors.error,
-        colorText: AppColors.onPrimary,
-      );
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
-
-    // إعداد بيانات AuthController
+    // مرّر القيم إلى الكنترولر
     _authC.emailCtrl.text = _emailController.text.trim();
     _authC.passwordCtrl.text = _passwordController.text.trim();
 
-    // استدعاء دالة تسجيل الدخول
+    // امنع ضغطات مزدوجة
+    if (_authC.isLoggingIn.value) return;
+
     final result = await _authC.loginApi();
 
-    setState(() => _isLoading = false);
+    // ✅ طباعة النتيجة كاملة في الكونسل لمعرفة وين المشكلة بالضبط
+    print('🔴 [LoginPopup] loginApi result: $result');
 
     if (result['status'] == true) {
-      Get.back();
+      final msg =
+          (result['message'] ?? 'تم تسجيل الدخول بنجاح').toString();
       Get.snackbar(
-        'نجاح'.tr,
-        result['message'] ?? 'تم تسجيل الدخول'.tr,
+        'نجاح',
+        msg,
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: AppColors.success,
         colorText: AppColors.onPrimary,
       );
-      // الانتقال للصفحة الرئيسية
-      Get.offAllNamed('/home');
     } else {
+      final msg = (result['message'] ?? 'خطأ في تسجيل الدخول').toString();
+
+      if (msg.contains('reCAPTCHA')) {
+        print('🧪 [LoginPopup] reCAPTCHA-related failure: $msg');
+      }
+
       Get.snackbar(
-        'فشل'.tr,
-        result['message'] ?? 'خطأ في تسجيل الدخول'.tr,
+        'فشل',
+        msg,
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: AppColors.error,
         colorText: AppColors.onPrimary,

@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:tappuu_app/controllers/sharedController.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:tappuu_app/controllers/ChatController.dart';
@@ -15,6 +16,7 @@ import 'package:tappuu_app/controllers/ThemeController.dart';
 import '../../core/data/model/Message.dart';
 import '../../core/data/model/conversation.dart';
 import '../HomeScreen/menubar.dart';
+import '../viewAdsScreen/AdDetailsScreen.dart';
 
 enum PendingVoiceStatus { recording, uploading, failed, sent }
 
@@ -811,7 +813,7 @@ class _ConversationScreenInMyState extends State<ConversationScreenInMy> {
     }();
 
     return Container(
-      height: 60.h,
+      height: 56.h,
       color: AppColors.appBar(isDarkMode),
       padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 6.h),
       child: Row(
@@ -945,38 +947,81 @@ class _ConversationScreenInMyState extends State<ConversationScreenInMy> {
     );
   }
 
-  Widget _buildAdMiniCard(Color cardColor, Color textPrimary, Color textSecondary) {
-    return Container(
-      padding: EdgeInsets.all(12.r),
-      margin: EdgeInsets.symmetric(horizontal: 0.w, vertical: 6.h),
-      decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(0.r)),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (widget.ad?.images.isNotEmpty == true)
-          SizedBox(
-            width: 60.w,
-            height: 60.h,
-            child: ClipRRect(borderRadius: BorderRadius.circular(12.r), child: Image.network(widget.ad!.images[0], fit: BoxFit.cover, errorBuilder: (c, e, s) => Container(color: AppColors.greyLight, child: Icon(Icons.image, size: 30.sp)))),
-          ),
-        SizedBox(width: 12.w),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(widget.ad?.title ?? 'اعلان', style: TextStyle(fontFamily: AppTextStyles.appFontFamily, fontSize: AppTextStyles.medium, fontWeight: FontWeight.bold, color: const Color.fromARGB(255, 24, 117, 232))),
-            SizedBox(height: 6.h),
-            if (widget.ad?.price != null)
-              Text(
-                '${_formatPrice(widget.ad!.price!)}${" ليرة سورية".tr}',
-                style: TextStyle(
-                  fontFamily: AppTextStyles.appFontFamily,
-                  fontSize: AppTextStyles.medium,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary(_theme_controller_value()),
+    Widget _buildAdMiniCard(Color cardColor, Color textPrimary, Color textSecondary) {
+    final ad = widget.ad;
+    if (ad == null) {
+      return const SizedBox.shrink();
+    }
+
+    return InkWell(
+      onTap: () async{
+        SharedController _shared = Get.put(SharedController());
+              final  adData = await _shared.fetchAdDetails(adId:ad.id.toString());
+
+     Get.to(() => AdDetailsScreen(ad: adData!));
+      },
+      child: Container(
+        padding: EdgeInsets.all(12.r),
+        margin: EdgeInsets.symmetric(horizontal: 0.w, vertical: 6.h),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(0.r),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (ad.images.isNotEmpty)
+              SizedBox(
+                width: 60.w,
+                height: 60.h,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12.r),
+                  child: Image.network(
+                    ad.images[0],
+                    fit: BoxFit.cover,
+                    errorBuilder: (c, e, s) => Container(
+                      color: AppColors.greyLight,
+                      child: Icon(Icons.image, size: 30.sp),
+                    ),
+                  ),
                 ),
               ),
-          ]),
+            SizedBox(width: 12.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    ad.title ?? 'إعلان',
+                    style: TextStyle(
+                      fontFamily: AppTextStyles.appFontFamily,
+                      fontSize: AppTextStyles.medium,
+                      fontWeight: FontWeight.bold,
+                      color: const Color.fromARGB(255, 24, 117, 232),
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  SizedBox(height: 6.h),
+                  if (ad.price != null)
+                    Text(
+                      '${_formatPrice(ad.price!)}${" ليرة سورية".tr}',
+                      style: TextStyle(
+                        fontFamily: AppTextStyles.appFontFamily,
+                        fontSize: AppTextStyles.medium,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary(_theme_controller_value()),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
         ),
-      ]),
+      ),
     );
   }
+
 
   Widget _buildNoAdNotice(Color cardColor, Color textPrimary) {
     return Container(

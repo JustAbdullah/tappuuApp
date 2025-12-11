@@ -41,10 +41,13 @@ class _EditableTextWidgetState extends State<EditableTextWidget> {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
+      // ربط تفاعلي مباشر بقائمة العناصر (حتى لو تم تعديل عنصر داخلها)
+      final _ = ctrl.items.length;
+
       final item = ctrl.findByKey(widget.keyName);
       if (item == null) {
         // فارغ لحين جلب البيانات — يمكن عرض placeholder لو تحب
-        return SizedBox.shrink();
+        return const SizedBox.shrink();
       }
 
       final family = ctrl.fontFamilyForKey(item.keyName);

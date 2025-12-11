@@ -208,7 +208,7 @@ Future<void> fetchSubcategories(int Theid, String language) async {
     attributes.clear();
     isLoadingAttributes.value = true;
     try {
-      final uri = Uri.parse('$_baseUrl/categories/$categoryId/attributes?lang=$language');
+      final uri = Uri.parse('$_baseUrl/categories/$categoryId/attributes/all?lang=$language');
       final response = await http.get(uri);
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -252,35 +252,41 @@ Future<void> fetchSubcategories(int Theid, String language) async {
   }
   
   // رفع الصور للخادم
-  Future<void> uploadImagesToServer() async {
-    try {
-      loadingImages.value = true;
-      if (images.isEmpty) return;
+  // رفع الصور للخادم
+Future<void> uploadImagesToServer() async {
+  try {
+    loadingImages.value = true;
+    if (images.isEmpty) return;
       
-      var request = http.MultipartRequest('POST', Uri.parse("$_baseUrl/upload"));
-      
-      for (var image in images) {
-        if (await File(image.path).exists()) {
-          request.files.add(
-            await http.MultipartFile.fromPath('images[]', image.path)
-          );
-        }
+    var request = http.MultipartRequest('POST', Uri.parse("$_baseUrl/upload"));
+    
+    // ✅ تفعيل العلامة المائية لصور الإعلانات فقط
+    // هذا الحقل يقرأه ImageUploadController في Laravel (with_watermark = true)
+    request.fields['with_watermark'] = '1';
+
+    for (var image in images) {
+      if (await File(image.path).exists()) {
+        request.files.add(
+          await http.MultipartFile.fromPath('images[]', image.path),
+        );
       }
-      
-      var response = await request.send();
-      if (response.statusCode == 201) {
-        var responseData = await response.stream.bytesToString();
-        var jsonData = json.decode(responseData);
-        uploadedImageUrls.value = List<String>.from(jsonData['image_urls']).join(',');
-      } else {
-        throw Exception("Failed to upload images");
-      }
-    } catch (e) {
-      throw Exception("Image upload error: $e");
-    } finally {
-      loadingImages.value = false;
     }
+      
+    var response = await request.send();
+    if (response.statusCode == 201) {
+      var responseData = await response.stream.bytesToString();
+      var jsonData = json.decode(responseData);
+      uploadedImageUrls.value =
+          List<String>.from(jsonData['image_urls']).join(',');
+    } else {
+      throw Exception("Failed to upload images");
+    }
+  } catch (e) {
+    throw Exception("Image upload error: $e");
+  } finally {
+    loadingImages.value = false;
   }
+}  
   
 //Hell every One Time Day Open Nice;
 
@@ -816,7 +822,6 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
     // لو عندك توكن مصادقة، ضعه هنا:
     final headers = <String, String>{
       'Content-Type': 'application/json',
-     
     };
 
     final client = http.Client();
@@ -825,19 +830,23 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
     try {
       response = await client
           .post(uri, headers: headers, body: json.encode(adData))
-          .timeout(const Duration(seconds: 30));
+          .timeout(const Duration(seconds: 1800));
     } on TimeoutException catch (e) {
       hasError.value = true;
       debugPrint("⏳ انتهت مهلة الاتصال: $e");
-      _toastErr("مهلة الاتصال",
-          "⏳ انتهت مهلة الاتصال بالخادم. تحقّق من الشبكة وحاول مرة أخرى.",
-          bg: Colors.orange);
+      _toastErr(
+        "مهلة الاتصال",
+        "⏳ انتهت مهلة الاتصال بالخادم. تحقّق من الشبكة وحاول مرة أخرى.",
+        bg: Colors.orange,
+      );
       return null;
     } on SocketException catch (e) {
       hasError.value = true;
       debugPrint("🌐 مشكلة في الشبكة: $e");
-      _toastErr("مشكلة شبكة",
-          "📡 لا يمكن الوصول للسيرفر. تحقق من اتصال الإنترنت أو عنوان الخادم.");
+      _toastErr(
+        "مشكلة شبكة",
+        "📡 لا يمكن الوصول للسيرفر. تحقق من اتصال الإنترنت أو عنوان الخادم.",
+      );
       return null;
     } catch (e) {
       hasError.value = true;
@@ -884,8 +893,12 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
       if (isPremium && premiumExpiresAt != null && premiumExpiresAt.isNotEmpty) {
         successMessage += " كإعلان مميز حتى $premiumExpiresAt";
       }
-      Get.snackbar("نجاح", successMessage,
-          colorText: Colors.white, backgroundColor: Colors.green);
+      Get.snackbar(
+        "نجاح",
+        successMessage,
+        colorText: Colors.white,
+        backgroundColor: Colors.green,
+      );
 
       try {
         final NotificationController _notificationController =
@@ -940,9 +953,12 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
     } catch (_) {
       // ليس JSON — نعرض نص خام
       final msg = rawBody.isNotEmpty ? rawBody : 'خطأ غير معروف من الخادم';
-      _toastErr("خطأ",
-          "❌ فشل في إنشاء الإعلان (HTTP $status)\n$msg${reqId.isNotEmpty ? "\n🧾 Request-ID: $reqId" : ""}",
-          bg: Colors.orange);
+      _toastErr(
+        "خطأ",
+        "❌ فشل في إنشاء الإعلان (HTTP $status)\n$msg"
+        "${reqId.isNotEmpty ? "\n🧾 Request-ID: $reqId" : ""}",
+        bg: Colors.orange,
+      );
       return null;
     }
 
@@ -1038,7 +1054,9 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
     if (errorMap.containsKey('errors')) {
       final errs = errorMap['errors'] as Map<String, dynamic>;
       details = errs.entries
-          .map((e) => e.value is List ? '• ${(e.value as List).join(', ')}' : '• ${e.value}')
+          .map((e) => e.value is List
+              ? '• ${(e.value as List).join(', ')}'
+              : '• ${e.value}')
           .join('\n');
     }
     final fullMessage = [
@@ -1049,7 +1067,6 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
 
     _toastErr("خطأ", fullMessage, bg: Colors.orange);
     return null;
-
   } catch (e, stack) {
     debugPrint("💥 حدث استثناء غير متوقع: $e");
     debugPrint("📜 Stack trace: $stack");
@@ -1068,14 +1085,7 @@ Future<int?> submitAd({bool? isPay, dynamic premiumDays}) async {
 }
 
 
-// ========================= أدوات مساعدة =========================
-int? _nullableIntFromDynamic(dynamic v) {
-  if (v == null) return null;
-  if (v is int) return v;
-  if (v is double) return v.toInt();
-  if (v is String) return int.tryParse(v);
-  return null;
-}
+
 
 
 var TimeOverTime;
@@ -1183,8 +1193,10 @@ double? _extractPriceFromAdMap(Map<String, dynamic>? ad) {
   }
   return null;
 }
-
-// --- الدالة المطلوبة: updateAd مع طباعة عند تغيير السعر ---
+// --- الدالة المطلوبة: updateAd مع إبقاء منطق مقارنة السعر فقط ---
+// ملاحظة:
+// إشعارات تغيير السعر (إيميل + Push) يتم إرسالها الآن بالكامل من السيرفر (Laravel)
+// لذلك تم تعليق كود إرسال الإشعار من تطبيق Flutter حتى لا يتكرر الإرسال من جهتين.
 Future<void> updateAd(int adId) async {
   try {
     isSubmitting.value = true;
@@ -1281,12 +1293,23 @@ Future<void> updateAd(int adId) async {
 
       debugPrint('🔎 newPrice for ad $adId = $newPrice');
 
-      // 8) قارن الأسعار — لو تغيّر اطبع الرسالة في الترمنال
-      final priceChanged = (oldPrice != null || newPrice != null) && (oldPrice != newPrice);
+      // 8) قارن الأسعار — فقط للطباعة والمتابعة (بدون إرسال إشعار من التطبيق)
+      final priceChanged =
+          (oldPrice != null || newPrice != null) && (oldPrice != newPrice);
+
+      // ✅ إشعارات تغيير السعر صارت تُرسل الآن من الخادم (Laravel) فقط.
+      // تم تعليق الكود التالي حتى لا يتم تكرار إرسال الإشعار من التطبيق:
+      /*
       if (priceChanged) {
-      NotificationController _notificationController =  Get.put(NotificationController());
-      _notificationController.sendUpdatePriceNotification("اشعار تحدي  سعر اعلان ما","تم تحديث سعر اعلان: $adTitleالسعر الجديد هو:$oldPrice",adId.toString());
+        NotificationController _notificationController =
+            Get.put(NotificationController());
+        _notificationController.sendUpdatePriceNotification(
+          "اشعار تحديث سعر إعلان",
+          "تم تحديث سعر إعلان: $adTitle. السعر القديم: $oldPrice - السعر الجديد: $newPrice",
+          adId.toString(),
+        );
       }
+      */
 
       Get.snackbar("نجاح", "تم تحديث الإعلان بنجاح");
     } else {
@@ -1304,9 +1327,9 @@ Future<void> updateAd(int adId) async {
     Get.snackbar("خطأ", e.toString());
   } finally {
     isSubmitting.value = false;
-  }}
+  }
+}
 
-  ///
 
 
   ///

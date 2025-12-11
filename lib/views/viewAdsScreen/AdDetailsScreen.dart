@@ -1306,7 +1306,7 @@ void _showReportDialog() {
           child: SafeArea(
             child: Stack(children: [
               Container(
-                height: 60.h,
+                height:56.h,
                 padding: EdgeInsets.symmetric(horizontal: 4.w),
                 color: AppColors.appBar(isDarkMode),
                 child: Row(
@@ -2343,6 +2343,8 @@ void _showPriceInfoDialog(BuildContext context) {
     );
   }
 
+  //...........................//////////
+
 void _showContactBottomSheet() {
   final themeController = Get.find<ThemeController>();
   final isDarkMode = themeController.isDarkMode.value;
@@ -2354,27 +2356,91 @@ void _showContactBottomSheet() {
   final member = ad.companyMember;
 
   // هل المعلن شركة؟
-  final bool isCompany = (advertiser.accountType.toLowerCase() == 'company');
+  final bool isCompany =
+      advertiser.accountType.toLowerCase() == Advertiser.TYPE_COMPANY;
 
-  // أرقام التواصل حسب الشرط:
-  // لو شركة: كل الأرقام من العضو فقط.
-  // غير ذلك: من المعلن (فردي).
-  String? _prefer(String? v) => (v != null && v.trim().isNotEmpty) ? v.trim() : null;
+  // دالة تفضيل بسيطة (تفريغ المسافات فقط)
+  String? _prefer(String? v) =>
+      (v != null && v.trim().isNotEmpty) ? v.trim() : null;
 
+  // أرقام التواصل:
+  // شركة → من العضو  | فردي → من المعلن
   final String? whatsappChatNumber =
       isCompany ? _prefer(member?.whatsappPhone) : _prefer(advertiser.whatsappPhone);
 
   final String? phoneCallNumber =
       isCompany ? _prefer(member?.contactPhone) : _prefer(advertiser.contactPhone);
 
-  // اتصال واتساب: نفضّل رقم اتصال واتساب الخاص بالعضو، وإن لم يتوفر نستخدم رقم واتساب العضو،
-  // أما في الحساب الفردي فنبقيها على رقم واتساب المعلن.
+  // اتصال واتساب: نفضّل رقم مكالمات واتساب للعضو، ثم رقم واتساب نفسه
   final String? whatsappCallNumber = isCompany
       ? (_prefer(member?.whatsappCallNumber) ?? _prefer(member?.whatsappPhone))
       : _prefer(advertiser.whatsappPhone);
 
+  // 🔹 زر موحّد بشكل احترافي (نفس التصميم لكل الأزرار)
+  Widget _buildContactButton({
+    required Color background,
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return SizedBox(
+      height: 48.h,
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: onTap, // 🎯 نسمح بالضغط دائمًا، حتى لو الرقم ملخبط
+        icon: Icon(icon, color: Colors.white, size: 22.w),
+        label: Text(
+          label,
+          style: TextStyle(
+            fontFamily: AppTextStyles.appFontFamily,
+            fontSize: AppTextStyles.medium,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: background,
+          elevation: 2,
+          shadowColor: Colors.black.withOpacity(0.15),
+          padding: EdgeInsets.symmetric(vertical: 10.h, horizontal: 8.w),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12.r),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWhatsappChatButton(String? phone) {
+    return _buildContactButton(
+      background: const Color(0xFF25D366),
+      icon: Icons.chat_outlined,
+      label: 'محادثة واتساب'.tr,
+      onTap: () => _launchWhatsAppChat(phone ?? ''),
+    );
+  }
+
+  Widget _buildPhoneCallButton(String? phone) {
+    return _buildContactButton(
+      background: AppColors.buttonAndLinksColor,
+      icon: Icons.phone_in_talk_rounded,
+      label: 'اتصال مباشر'.tr,
+      onTap: () => _makePhoneCall(phone ?? ''),
+    );
+  }
+
+  Widget _buildWhatsappCallButton(String? phone) {
+    return _buildContactButton(
+      background: const Color(0xFF128C7E),
+      icon: Icons.call_rounded,
+      label: 'اتصال واتساب'.tr,
+      onTap: () => _launchWhatsAppCall(phone ?? ''),
+    );
+  }
+
   showModalBottomSheet(
     context: context,
+    isScrollControlled: true, // يسمح بالتمرير في الشاشات الصغيرة
     backgroundColor: cardColor,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.only(
@@ -2382,224 +2448,307 @@ void _showContactBottomSheet() {
         topRight: Radius.circular(20.r),
       ),
     ),
+    constraints: BoxConstraints(
+      maxHeight: MediaQuery.of(context).size.height * 0.9,
+    ),
     builder: (context) {
-      return Container(
-        padding: EdgeInsets.all(16.w),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // شريط العنوان + بادج بريميوم
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      final media = MediaQuery.of(context);
+
+      return SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: 16.w,
+            right: 16.w,
+            top: 10.h,
+            bottom: media.viewInsets.bottom + 16.h,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (ad.is_premium == true)
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+                // شريط سحب بسيط فوق
+                Center(
+                  child: Container(
+                    width: 40.w,
+                    height: 4.h,
+                    margin: EdgeInsets.only(bottom: 12.h),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFD7D7D6), Color(0xFFEBEBE1), Color(0xFFD7D7D6)],
-                      ),
-                      borderRadius: BorderRadius.circular(4.r),
+                      color: Colors.grey.withOpacity(0.4),
+                      borderRadius: BorderRadius.circular(999),
                     ),
-                    child: Text(
-                      'Premium offer',
-                      style: TextStyle(
-                        fontFamily: AppTextStyles.appFontFamily,
-                        fontSize: 11.sp,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey[700],
-                      ),
-                    ),
-                  ),
-                Expanded(
-                  child: Text(
-                    ad.title,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: AppTextStyles.appFontFamily,
-                      fontSize: AppTextStyles.medium,
-                      fontWeight: FontWeight.bold,
-                      color: textPrimary,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              ],
-            ),
 
-            SizedBox(height: 16.h),
-
-            // معلومات المعلن (شركة: اسم شركة + عضو / فردي: اسم المعلن)
-            Row(
-              children: [
-                Container(
-                  width: 60.w,
-                  height: 60.h,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.grey[200],
-                  ),
-                  child: (advertiser.logo.isNotEmpty)
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(30.r),
-                          child: Image.network(
-                            advertiser.logo,
-                            fit: BoxFit.cover,
+                // العنوان + بادج بريميوم
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    if (ad.is_premium == true)
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [
+                              Color(0xFFD7D7D6),
+                              Color(0xFFEBEBE1),
+                              Color(0xFFD7D7D6),
+                            ],
                           ),
-                        )
-                      : Icon(Icons.apartment, size: 30.w, color: AppColors.primary),
-                ),
-                SizedBox(width: 16.w),
-                Expanded(
-                  child: isCompany
-                      ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // اسم الشركة
-                            Text(
-                              advertiser.name ?? 'شركة',
-                              style: TextStyle(
-                                fontFamily: AppTextStyles.appFontFamily,
-                                fontSize: AppTextStyles.xlarge,
-                                fontWeight: FontWeight.bold,
-                                color: textPrimary,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            SizedBox(height: 6.h),
-                            // اسم العضو (لو موجود)
-                            if ((member?.displayName ?? '').isNotEmpty)
-                              Row(
-                                children: [
-                                  Icon(Icons.person, size: 16.sp, color: AppColors.textSecondary(isDarkMode)),
-                                  SizedBox(width: 6.w),
-                                  Flexible(
-                                    child: Text(
-                                      member!.displayName,
-                                      style: TextStyle(
-                                        fontFamily: AppTextStyles.appFontFamily,
-                                        fontSize: AppTextStyles.medium,
-                                        color: AppColors.textSecondary(isDarkMode),
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                          ],
-                        )
-                      : Text(
-                          advertiser.name ?? 'معلن',
+                          borderRadius: BorderRadius.circular(4.r),
+                        ),
+                        child: Text(
+                          'Premium offer',
                           style: TextStyle(
                             fontFamily: AppTextStyles.appFontFamily,
-                            fontSize: AppTextStyles.xlarge,
+                            fontSize: 11.sp,
                             fontWeight: FontWeight.bold,
-                            color: textPrimary,
+                            color: Colors.grey[700],
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
+                      ),
+                    SizedBox(width: 8.w),
+                    Expanded(
+                      child: Text(
+                        ad.title,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: AppTextStyles.appFontFamily,
+                          fontSize: AppTextStyles.medium,
+                          fontWeight: FontWeight.bold,
+                          color: textPrimary,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    SizedBox(width: 40.w), // توازن مع البادج
+                  ],
+                ),
+
+                SizedBox(height: 16.h),
+
+                // معلومات المعلن (الصورة + الاسم)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // أفاتار المعلن:
+                    // شركة → صورة العضو
+                    // فردي → صورة المعلن (logo)
+                    Container(
+                      width: 60.w,
+                      height: 60.w,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isDarkMode ? Colors.grey[800] : Colors.grey[200],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(30.r),
+                        child: Builder(
+                          builder: (_) {
+                            String? avatarUrl;
+                            if (isCompany) {
+                              final raw = member?.AvatarUrl?.trim();
+                              if (raw != null && raw.isNotEmpty) {
+                                avatarUrl = raw;
+                              }
+                            } else {
+                              final raw = advertiser.logo.trim();
+                              if (raw.isNotEmpty) {
+                                avatarUrl = raw;
+                              }
+                            }
+
+                            if (avatarUrl != null) {
+                              return Image.network(
+                                avatarUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Icon(
+                                  Icons.person,
+                                  size: 30.w,
+                                  color: AppColors.primary,
+                                ),
+                              );
+                            }
+
+                            return Icon(
+                              Icons.person,
+                              size: 30.w,
+                              color: AppColors.primary,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(width: 16.w),
+
+                    // الأسماء (عضو + شركة أو فردي فقط)
+                    Expanded(
+                      child: Builder(
+                        builder: (_) {
+                          final String companyName =
+                              (advertiser.name ?? '').trim();
+                          final String memberName =
+                              (member?.displayName ?? '').trim();
+
+                          // في حال شركة: نعرض اسم العضو كبطل، وإن ما في اسم عضو نرجع لاسم الشركة
+                          // في حال فردي: نعرض اسم المعلن
+                          final String mainName = isCompany
+                              ? (memberName.isNotEmpty
+                                  ? memberName
+                                  : (companyName.isNotEmpty ? companyName : 'معلن'))
+                              : ((advertiser.name ?? 'معلن'));
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                mainName,
+                                style: TextStyle(
+                                  fontFamily: AppTextStyles.appFontFamily,
+                                  fontSize: AppTextStyles.xlarge,
+                                  fontWeight: FontWeight.bold,
+                                  color: textPrimary,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              SizedBox(height: 4.h),
+                              if (isCompany && companyName.isNotEmpty)
+                                Text(
+                                  companyName,
+                                  style: TextStyle(
+                                    fontFamily: AppTextStyles.appFontFamily,
+                                    fontSize: 11.sp,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppColors
+                                        .textSecondary(isDarkMode)
+                                        .withOpacity(0.8),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+
+                SizedBox(height: 24.h),
+
+                // أزرار التواصل – استجابة للشاشات الصغيرة والكبيرة
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final bool isWide = constraints.maxWidth >= 420;
+
+                    if (isWide) {
+                      // شاشات أوسع → صفين: (واتساب + اتصال) في صف، واتساب اتصال تحتهم
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(child: _buildWhatsappChatButton(whatsappChatNumber)),
+                              SizedBox(width: 12.w),
+                              Expanded(child: _buildPhoneCallButton(phoneCallNumber)),
+                            ],
+                          ),
+                          SizedBox(height: 12.h),
+                          _buildWhatsappCallButton(whatsappCallNumber),
+                        ],
+                      );
+                    } else {
+                      // شاشات ضيقة → الأزرار تحت بعض بكامل العرض
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildWhatsappChatButton(whatsappChatNumber),
+                          SizedBox(height: 12.h),
+                          _buildPhoneCallButton(phoneCallNumber),
+                          SizedBox(height: 12.h),
+                          _buildWhatsappCallButton(whatsappCallNumber),
+                        ],
+                      );
+                    }
+                  },
                 ),
               ],
             ),
-
-            SizedBox(height: 24.h),
-
-            // أزرار التواصل (كلها تعتمد على العضو عند الشركة)
-            Column(
-              children: [
-                // زر محادثة واتساب
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: Icon(Icons.message, color: Colors.white, size: 24.w),
-                    label: Text(
-                      'محادثة واتساب'.tr,
-                      style: TextStyle(
-                        fontFamily: AppTextStyles.appFontFamily,
-                        fontSize: AppTextStyles.medium,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF25D366),
-                      padding: EdgeInsets.symmetric(vertical: 12.h),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
-                    ),
-                    onPressed: (whatsappChatNumber == null)
-                        ? null
-                        : () => _launchWhatsAppChat(whatsappChatNumber),
-                  ),
-                ),
-
-                SizedBox(height: 12.h),
-
-                // زر الاتصال المباشر
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: Icon(Icons.phone, color: Colors.white, size: 24.w),
-                    label: Text(
-                      'اتصال مباشر'.tr,
-                      style: TextStyle(
-                        fontFamily: AppTextStyles.appFontFamily,
-                        fontSize: AppTextStyles.medium,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.buttonAndLinksColor,
-                      padding: EdgeInsets.symmetric(vertical: 12.h),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
-                    ),
-                    onPressed: (phoneCallNumber == null)
-                        ? null
-                        : () => _makePhoneCall(phoneCallNumber),
-                  ),
-                ),
-
-                SizedBox(height: 12.h),
-
-                // زر الاتصال عبر واتساب
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: Icon(Icons.phone_in_talk, color: Colors.white, size: 24.w),
-                    label: Text(
-                      'اتصال واتساب'.tr,
-                      style: TextStyle(
-                        fontFamily: AppTextStyles.appFontFamily,
-                        fontSize: AppTextStyles.medium,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF128C7E),
-                      padding: EdgeInsets.symmetric(vertical: 12.h),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
-                    ),
-                    onPressed: (whatsappCallNumber == null)
-                        ? null
-                        : () => _launchWhatsAppCall(whatsappCallNumber),
-                  ),
-                ),
-              ],
-            ),
-
-            SizedBox(height: 16.h),
-          ],
+          ),
         ),
       );
     },
   );
 }
 
+/// دالة لفتح محادثة واتساب
+/// ✅ لا نتحقق من صحة الرقم، فقط نحاول، وواتساب يتكفّل بالباقي
+Future<void> _launchWhatsAppChat(String phone) async {
+  try {
+    final raw = phone.trim();
+    final hasPlus = raw.startsWith('+');
+    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    final normalized = hasPlus ? '+$digits' : digits;
+
+    // نحاول تطبيق واتساب مباشرة
+    final scheme = Uri.parse('whatsapp://send?phone=$normalized');
+    final ok = await launchUrl(scheme, mode: LaunchMode.externalApplication);
+    if (ok) return;
+
+    // احتياط: عبر wa.me
+    final wa = Uri.parse('https://wa.me/$normalized');
+    await launchUrl(wa, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    // ولا شيء، نخلي النظام يتصرف، بدون سناك بار
+  }
+}
+
+/// دالة لفتح "اتصال واتساب"
+Future<void> _launchWhatsAppCall(String phone) async {
+  try {
+    final raw = phone.trim();
+    final hasPlus = raw.startsWith('+');
+    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    final normalized = hasPlus ? '+$digits' : digits;
+
+    // نحاول مكالمة واتساب
+    final callScheme = Uri.parse('whatsapp://call?number=$normalized');
+    final ok = await launchUrl(callScheme, mode: LaunchMode.externalApplication);
+    if (ok) return;
+
+    // إن فشلت نحاول فتح المحادثة
+    final scheme = Uri.parse('whatsapp://send?phone=$normalized');
+    final ok2 = await launchUrl(scheme, mode: LaunchMode.externalApplication);
+    if (ok2) return;
+
+    final wa = Uri.parse('https://wa.me/$normalized');
+    await launchUrl(wa, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    // تجاهل أي خطأ
+  }
+}
+
+/// اتصال هاتف مباشر – فقط نفتح تطبيق الاتصال
+Future<void> _makePhoneCall(String phone) async {
+  try {
+    final raw = phone.trim();
+    final hasPlus = raw.startsWith('+');
+    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    final normalized = hasPlus ? '+$digits' : digits;
+
+    final uri = Uri(scheme: 'tel', path: normalized);
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    // بدون أي رسائل في التطبيق
+  }
+}}
+
+
+////////..................///////////////////////////////
 String _formatDateTime(DateTime dateTime) {
   // تنسيق التاريخ إلى yyyy/mm/dd
   String year = dateTime.year.toString();
@@ -2628,56 +2777,29 @@ String _formatNumericDate(DateTime date) {
   return '$year-$month-$day';
 }
 
-// دالة لفتح محادثة واتساب
-Future<void> _launchWhatsAppChat(String phone) async {
-  final url = 'https://wa.me/$phone';
-  if (await canLaunchUrl(Uri.parse(url))) {
-    await launchUrl(Uri.parse(url));
-  } else {
-    Get.snackbar('خطأ'.tr, 'تعذر فتح واتساب'.tr);
-  }
-}
-
-// دالة لفتح اتصال واتساب مباشر
-Future<void> _launchWhatsAppCall(String phone) async {
-  final url = 'https://wa.me/$phone?text=${Uri.encodeComponent('')}';
-  if (await canLaunchUrl(Uri.parse(url))) {
-    await launchUrl(Uri.parse(url));
-  } else {
-    Get.snackbar('خطأ'.tr, 'تعذر فتح واتساب'.tr);
-  }
-}
-
-Future<void> _makePhoneCall(String phone) async {
-  final url = 'tel:$phone';
-  if (await canLaunchUrl(Uri.parse(url))) {
-    await launchUrl(Uri.parse(url));
-  } else {
-    Get.snackbar('خطأ'.tr, 'تعذر إجراء المكالمة'.tr);
-  }
-}}
-
 class _MediaGallery extends StatefulWidget {
   final List<String> images;
   final List<String> videos;
   final double width;
   final double height;
-  final Function(String) onVideoTap;
+  final Ad ad;
+
+  // للحفاظ على التوافق مع الكود القديم في AdDetailsScreen
+  final void Function(String)? onVideoTap;
   final String? playingVideoUrl;
   final bool isVideoPlaying;
   final bool videoError;
-  final Ad ad;
 
   const _MediaGallery({
     required this.images,
     required this.videos,
     required this.width,
     required this.height,
-    required this.onVideoTap,
+    required this.ad,
+    this.onVideoTap,
     this.playingVideoUrl,
     this.isVideoPlaying = false,
     this.videoError = false,
-    required this.ad,
   });
 
   @override
@@ -2688,10 +2810,22 @@ class _MediaGalleryState extends State<_MediaGallery> {
   late final PageController _pageController;
   int _currentIndex = 0;
 
+  // 🎥 إدارة الفيديو داخلياً
+  VideoPlayerController? _videoController;
+  ChewieController? _chewieController;
+  String? _currentVideoUrl;
+  bool _isInitializing = false;
+  bool _videoError = false;
+  String? _videoErrorMessage;
+
   List<MediaItem> get _mediaItems {
     return [
-      ...widget.images.map((url) => MediaItem(type: MediaType.image, url: url)),
-      ...widget.videos.map((url) => MediaItem(type: MediaType.video, url: url)),
+      ...widget.images.map(
+        (url) => MediaItem(type: MediaType.image, url: url),
+      ),
+      ...widget.videos.map(
+        (url) => MediaItem(type: MediaType.video, url: url),
+      ),
     ];
   }
 
@@ -2703,128 +2837,453 @@ class _MediaGalleryState extends State<_MediaGallery> {
 
   @override
   void dispose() {
+    _disposeVideoControllers();
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _disposeVideoControllers() {
+    try {
+      _chewieController?.dispose();
+    } catch (_) {}
+    try {
+      _videoController?.dispose();
+    } catch (_) {}
+
+    _chewieController = null;
+    _videoController = null;
+    _currentVideoUrl = null;
+    _isInitializing = false;
+    _videoError = false;
+    _videoErrorMessage = null;
   }
 
   @override
   Widget build(BuildContext context) {
     final items = _mediaItems;
     if (items.isEmpty) {
-      return Center(child: Icon(Icons.image, size: 100.w, color: Colors.grey));
+      return Center(
+        child: Icon(
+          Icons.image,
+          size: 100.w,
+          color: Colors.grey,
+        ),
+      );
     }
 
-    return Stack(
-      children: [
-        PageView.builder(
-          controller: _pageController,
-          itemCount: items.length,
-          onPageChanged: (i) => setState(() => _currentIndex = i),
-          itemBuilder: (ctx, index) {
-            final item = items[index];
+    return Container(
+      color: Colors.white,
+      child: Stack(
+        children: [
+          // ================= SLIDER الرئيسي =================
+          PageView.builder(
+            controller: _pageController,
+            itemCount: items.length,
+            onPageChanged: (i) {
+              setState(() => _currentIndex = i);
 
-            if (widget.playingVideoUrl == item.url) {
-              if (widget.videoError) {
-                return _buildVideoErrorState(item.url);
-              } else if (widget.isVideoPlaying) {
-                return Chewie(
-                  controller: ChewieController(
-                    videoPlayerController: VideoPlayerController.network(item.url),
-                    autoPlay: true,
-                    looping: false,
-                    allowFullScreen: true,
-                    aspectRatio: 16 / 9,
-                    showControls: true,
-                    materialProgressColors: ChewieProgressColors(
-                      playedColor: AppColors.primary,
-                      handleColor: AppColors.primary,
-                      backgroundColor: Colors.grey[700]!,
-                      bufferedColor: Colors.grey[500]!,
-                    ),
-                    placeholder: Center(child: CircularProgressIndicator()),
-                    errorBuilder: (_, __) => _buildVideoErrorState(item.url),
-                  ),
-                );
-              } else {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(AppColors.primary)),
-                      SizedBox(height: 16.h),
-                      Text('جاري تحميل الفيديو...', style: TextStyle(color: Colors.white, fontSize: 16.sp)),
-                    ],
-                  ),
-                );
+              // لو تركنا صفحة الفيديو – نوقفه بس
+              if (_videoController != null &&
+                  _videoController!.value.isPlaying) {
+                _videoController!.pause();
               }
-            }
+            },
+            itemBuilder: (ctx, index) {
+              final item = items[index];
 
-            return item.type == MediaType.video
-                ? _buildVideoThumbnail(item.url)
-                : _buildImageDisplay(item.url);
-          },
-        ),
+              if (item.type == MediaType.video) {
+                // هذا الفيديو هو الحالي؟
+                if (_currentVideoUrl == item.url) {
+                  if (_videoError) {
+                    return _buildVideoErrorState(item.url);
+                  }
 
-        Positioned(
-          bottom: 10.h,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(12.r),
-              ),
-              child: Text(
-                '${_currentIndex + 1}/${items.length}',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: AppTextStyles.medium,
+                  if (_isInitializing ||
+                      _videoController == null ||
+                      !_videoController!.value.isInitialized ||
+                      _chewieController == null) {
+                    return _buildVideoLoadingState();
+                  }
 
-                  fontFamily: AppTextStyles.appFontFamily,
+                  return _buildActiveVideoPlayer(item.url);
+                } else {
+                  // مجرد ثامبنيل
+                  return _buildVideoThumbnail(item.url);
+                }
+              }
+
+              // صورة
+              return _buildImageDisplay(item.url);
+            },
+          ),
+
+          // ================= عدّاد الصفحات =================
+          Positioned(
+            bottom: 10.h,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding:
+                    EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(12.r),
                 ),
-                textAlign: TextAlign.center,
+                child: Text(
+                  '${_currentIndex + 1}/${items.length}',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: AppTextStyles.medium,
+                    fontFamily: AppTextStyles.appFontFamily,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ),
             ),
           ),
-        ),
-        Positioned(
-          bottom: 0.h,
-          right: 0.w,
-          left: 0.w,
-          child: Divider(
-            height: 5,
-            thickness: 10,
-            color: Color(0XFF40485D),
+
+          // ================= شريط سفلي بسيط =================
+          Positioned(
+            bottom: 0.h,
+            right: 0.w,
+            left: 0.w,
+            child: Divider(
+              height: 5,
+              thickness: 5,
+              color: const Color(0XFF40485D),
+            ),
           ),
-        ),
-        Positioned(
-          bottom: 0.h,
-          right: 12.w,
-          child: _buildPremiumBadge(widget.ad),
-        ),
-      ],
+
+          // ================= شارة Premium =================
+          Positioned(
+            bottom: 2.h,
+            right: 12.w,
+            child: _buildPremiumBadge(widget.ad),
+          ),
+        ],
+      ),
     );
   }
 
+  // ===================== إدارة الفيديو =====================
+
+  Widget _buildVideoLoadingState() {
+    return Container(
+      color: Colors.black,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(),
+            SizedBox(height: 16.h),
+            Text(
+              'جاري تحميل الفيديو...',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16.sp,
+                fontFamily: AppTextStyles.appFontFamily,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openOrPlayVideo(String url) async {
+    debugPrint('🎥 Trying to play video URL => $url');
+
+    // كولباك خارجي لو حاب تتبع النقرات
+    widget.onVideoTap?.call(url);
+
+    // نفس الفيديو ومتهيّأ → Toggle Play/Pause
+    if (_currentVideoUrl == url &&
+        _videoController != null &&
+        _videoController!.value.isInitialized &&
+        !_videoError) {
+      if (_videoController!.value.isPlaying) {
+        await _videoController!.pause();
+      } else {
+        await _videoController!.play();
+      }
+      setState(() {});
+      return;
+    }
+
+    _disposeVideoControllers();
+    setState(() {
+      _currentVideoUrl = url;
+      _isInitializing = true;
+      _videoError = false;
+      _videoErrorMessage = null;
+    });
+
+    try {
+      // مهم: استخدم networkUrl لو متاح
+      final controller = VideoPlayerController.networkUrl(Uri.parse(url));
+      _videoController = controller;
+
+      controller.addListener(() {
+        if (!mounted) return;
+        final value = controller.value;
+
+        if (value.hasError && !_videoError) {
+          setState(() {
+            _videoError = true;
+            _videoErrorMessage = value.errorDescription;
+            _isInitializing = false;
+          });
+        } else if (value.isInitialized && _isInitializing) {
+          setState(() {
+            _isInitializing = false;
+          });
+        }
+      });
+
+      // ❌ بدون timeout يدوي – نخلي النظام/الشبكة تقرر
+      await controller.initialize();
+
+      if (!mounted) return;
+
+      if (controller.value.hasError) {
+        setState(() {
+          _videoError = true;
+          _videoErrorMessage = controller.value.errorDescription;
+          _isInitializing = false;
+        });
+        return;
+      }
+
+      final chewie = ChewieController(
+        videoPlayerController: controller,
+        autoPlay: true,
+        looping: false,
+        allowFullScreen: true,
+        aspectRatio: controller.value.aspectRatio == 0
+            ? 16 / 9
+            : controller.value.aspectRatio,
+        showControls: true,
+        // بدون placeholder عشان ما يظل سبينر فوق الفيديو
+        errorBuilder: (_, __) => _buildVideoErrorState(url),
+      );
+
+      setState(() {
+        _chewieController = chewie;
+        _isInitializing = false;
+        _videoError = false;
+        _videoErrorMessage = null;
+      });
+
+      controller.play();
+    } catch (e) {
+      debugPrint('🎥 Video init error: $e');
+      if (!mounted) return;
+      setState(() {
+        _isInitializing = false;
+        _videoError = true;
+        _videoErrorMessage = e.toString();
+      });
+    }
+  }
+
+  Widget _buildActiveVideoPlayer(String url) {
+    if (_chewieController == null ||
+        _videoController == null ||
+        !_videoController!.value.isInitialized) {
+      return _buildVideoLoadingState();
+    }
+
+    return Container(
+      color: Colors.black,
+      child: Chewie(
+        controller: _chewieController!,
+      ),
+    );
+  }
+
+  Widget _buildVideoThumbnail(String url) {
+    return GestureDetector(
+      onTap: () => _openOrPlayVideo(url),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.network(
+            _getVideoThumbnail(url),
+            fit: BoxFit.cover,
+            width: widget.width,
+            height: widget.height,
+            errorBuilder: (_, __, ___) => Container(
+              color: Colors.grey[800],
+              child: Center(
+                child: Icon(
+                  Icons.videocam_off,
+                  size: 50.w,
+                  color: Colors.grey,
+                ),
+              ),
+            ),
+          ),
+          Container(color: Colors.black26),
+          Center(
+            child: Container(
+              padding: EdgeInsets.all(20.w),
+              decoration: const BoxDecoration(
+                color: Colors.black54,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.play_arrow,
+                size: 50.w,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          Positioned(
+            top: 10.h,
+            right: 10.w,
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(8.r),
+              ),
+              child: Text(
+                'فيديو',
+                style: TextStyle(
+                  fontFamily: AppTextStyles.appFontFamily,
+                  fontSize: 10.sp,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVideoErrorState(String url) {
+    return Container(
+      color: Colors.grey[900],
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 60.w, color: Colors.red),
+            SizedBox(height: 20.h),
+            Text(
+              'حدث خطأ في تحميل الفيديو',
+              style: TextStyle(
+                fontSize: AppTextStyles.xlarge,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontFamily: AppTextStyles.appFontFamily,
+              ),
+            ),
+            if (_videoErrorMessage != null) ...[
+              SizedBox(height: 10.h),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16.w),
+                child: Text(
+                  _videoErrorMessage!,
+                  style: TextStyle(
+                    fontSize: AppTextStyles.small,
+                    color: Colors.grey[300],
+                    fontFamily: AppTextStyles.appFontFamily,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+            SizedBox(height: 20.h),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.refresh),
+              label: const Text('إعادة المحاولة'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(
+                  horizontal: 24.w,
+                  vertical: 12.h,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30.r),
+                ),
+              ),
+              onPressed: () => _openOrPlayVideo(url),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getVideoThumbnail(String url) =>
+      'https://img.freepik.com/free-photo/abstract-blur-empty-green-gradient-studio-well-use-as-background-website-template-frame-business-report_1258-54622.jpg';
+
+  // ===================== الصور =====================
+
+  Widget _buildImageDisplay(String url) {
+    return Image.network(
+      url,
+      fit: BoxFit.contain,
+      width: widget.width,
+      height: widget.height,
+      loadingBuilder: (c, child, prog) {
+        if (prog == null) return child;
+        return Center(
+          child: CircularProgressIndicator(
+            value: prog.expectedTotalBytes != null
+                ? prog.cumulativeBytesLoaded / prog.expectedTotalBytes!
+                : null,
+          ),
+        );
+      },
+      errorBuilder: (_, __, ___) => Container(
+        color: Colors.grey[200],
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.broken_image, size: 50.w, color: Colors.grey),
+              SizedBox(height: 10.h),
+              Text(
+                'تعذر تحميل الصورة',
+                style: TextStyle(
+                  fontSize: 16.sp,
+                  fontFamily: AppTextStyles.appFontFamily,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ===================== Premium Badge =====================
+
   Widget _buildPremiumBadge(Ad ad) {
     if (ad.is_premium != true) {
-      return Container();
+      return const SizedBox.shrink();
     }
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 0.h),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           colors: [
-            const Color.fromARGB(215, 219, 219, 218),
-            const Color.fromARGB(246, 235, 235, 225),
-            const Color.fromARGB(215, 219, 219, 218),
+            Color.fromARGB(215, 219, 219, 218),
+            Color.fromARGB(246, 235, 235, 225),
+            Color.fromARGB(215, 219, 219, 218),
           ],
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
         ),
-        borderRadius: BorderRadius.circular(0.r),
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(4.r),
+          topRight: Radius.circular(4.r),
+        ),
       ),
       child: Text(
         'Premium offer',
@@ -2837,102 +3296,9 @@ class _MediaGalleryState extends State<_MediaGallery> {
       ),
     );
   }
-
-  Widget _buildVideoThumbnail(String url) {
-    return GestureDetector(
-      onTap: () => widget.onVideoTap(url),
-      child: Stack(fit: StackFit.expand, children: [
-        Image.network(
-          _getVideoThumbnail(url),
-          fit: BoxFit.cover,
-          width: widget.width,
-          height: widget.height,
-          loadingBuilder: (c, child, prog) {
-            if (prog == null) return child;
-            return Center(
-              child: CircularProgressIndicator(
-                value: prog.expectedTotalBytes != null
-                    ? prog.cumulativeBytesLoaded / prog.expectedTotalBytes!
-                    : null,
-              ),
-            );
-          },
-          errorBuilder: (_, __, ___) => Container(
-            color: Colors.grey[800],
-            child: Center(child: Icon(Icons.videocam_off, size: 50.w, color: Colors.grey)),
-          ),
-        ),
-        Center(
-          child: Container(
-            padding: EdgeInsets.all(20.w),
-            decoration: BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-            child: Icon(Icons.play_arrow, size: 50.w, color: Colors.white),
-          ),
-        ),
-      ]),
-    );
-  }
-
-  Widget _buildImageDisplay(String url) {
-    return Image.network(
-      url,
-      fit: BoxFit.cover,
-      width: widget.width,
-      height: widget.height,
-      loadingBuilder: (c, child, prog) {
-        if (prog == null) return child;
-        return Center(
-          child: CircularProgressIndicator(
-            value: prog.expectedTotalBytes != null
-                ? prog.cumulativeBytesLoaded / prog.expectedTotalBytes!
-                : null,
-            valueColor: AlwaysStoppedAnimation(AppColors.primary),
-          ),
-        );
-      },
-      errorBuilder: (_, __, ___) => Container(
-        color: Colors.grey[200],
-        child: Center(
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(Icons.broken_image, size: 50.w, color: Colors.grey),
-            SizedBox(height: 10.h),
-            Text('تعذر تحميل الصورة', style: TextStyle(fontSize: 16.sp)),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVideoErrorState(String url) {
-    return Container(
-      color: Colors.grey[900],
-      child: Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(Icons.error_outline, size: 60.w, color: Colors.red),
-          SizedBox(height: 20.h),
-          Text('حدث خطأ في تحميل الفيديو',
-              style: TextStyle(fontSize: AppTextStyles.xlarge,
- color: Colors.white, fontWeight: FontWeight.bold)),
-          SizedBox(height: 20.h),
-          ElevatedButton.icon(
-            icon: Icon(Icons.refresh),
-            label: Text('إعادة المحاولة'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 12.h),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30.r)),
-            ),
-            onPressed: () => widget.onVideoTap(url),
-          ),
-        ]),
-      ),
-    );
-  }
-
-  String _getVideoThumbnail(String url) =>
-      'https://img.freepik.com/free-photo/abstract-blur-empty-green-gradient-studio-well-use-as-background-website-template-frame-business-report_1258-54622.jpg';
 }
+
+// ================= MODELS =================
 
 enum MediaType { image, video }
 

@@ -18,6 +18,10 @@ class SearchHistoryAdItem extends StatelessWidget {
 
   const SearchHistoryAdItem({super.key, required this.ad});
 
+  // نفس أبعاد الكرت في العرض الطولي البسيط
+  static const double _cardH = 78;   // ارتفاع الكرت
+  static const double _imgW = 105;   // عرض كتلة الصورة في اليمين
+
   @override
   Widget build(BuildContext context) {
     final AreaController areaController = Get.put(AreaController());
@@ -29,18 +33,33 @@ class SearchHistoryAdItem extends StatelessWidget {
     final LoadingController loadingC = Get.find<LoadingController>();
     final CurrencyController currencyController = Get.put(CurrencyController());
 
+    final bool isPremium = ad.is_premium == true;
+
+    // نص الموقع بشكل منطقي
+    String locationText = '';
+    if (city != null && ad.area != null && (ad.area!.name?.toString().isNotEmpty ?? false)) {
+      locationText = '${city.name}, ${ad.area!.name}';
+    } else if (city != null && areaName != null && areaName.isNotEmpty) {
+      locationText = '${city.name}, $areaName';
+    } else if (city != null) {
+      locationText = city.name;
+    } else if (areaName != null && areaName.isNotEmpty) {
+      locationText = areaName;
+    }
+
     return Container(
-      margin: EdgeInsets.symmetric(vertical: 0.h, horizontal: 0.w),
+      margin: EdgeInsets.only(bottom: 1.h),
       decoration: BoxDecoration(
-         color: ad.is_premium?const Color.fromARGB(255, 237, 202, 24).withOpacity(0.2):      
-        AppColors.surface(themeController.isDarkMode.value),
+        color: isPremium
+            ? const Color.fromARGB(255, 237, 202, 24).withOpacity(0.35)
+            : AppColors.surface(isDarkMode),
         borderRadius: BorderRadius.circular(0.r),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
-            spreadRadius: 1,
-            offset: Offset(0, 2),
+            color: Colors.black.withOpacity(0.012),
+            blurRadius: 3,
+            spreadRadius: 0,
+            offset: const Offset(0, 1),
           ),
         ],
       ),
@@ -52,159 +71,179 @@ class SearchHistoryAdItem extends StatelessWidget {
             Get.to(() => AdDetailsScreen(ad: ad));
           },
           child: Padding(
-            padding: EdgeInsets.all(0.w), // زودت padding قليلاً فقط
+            padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 3.h),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.start,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // المعلومات
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(height: 7.h),
-
-                          // العنوان (كبّرته قليلاً)
-                          Text(
-                            ad.title,
-                            style: TextStyle(
-                              fontFamily: AppTextStyles.appFontFamily,
-                              fontSize: AppTextStyles.medium,
- // من 14.5 -> 15
-                              fontWeight: FontWeight.w500,
-                              color: AppColors.textPrimary(themeController.isDarkMode.value),
-                              height: 1.35,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          SizedBox(height: 4.h),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
+                // جسم الكرت
+                SizedBox(
+                  height: _cardH.h,
+                  child: Row(
+                    textDirection: TextDirection.rtl, // الصورة في اليمين
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // الصورة اليمنى + التاريخ
+                      if (ad.images.isNotEmpty)
+                        SizedBox(
+                          width: _imgW.w,
+                          child: Stack(
+                            fit: StackFit.expand,
                             children: [
-                              _buildPremiumBadge(),
-                            ],
-                          ),
-
-                          SizedBox(height: 8.h),
-
-                          // السعر (بقي في نفس المكان لكن أكبر قليلاً)
-                          if (ad.price != null)
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                SizedBox(
-                                  width: 110.w,
-                                  child: RichText(
-                                    maxLines: 1,
-                                    text: TextSpan(
-                                      
-                                      text: currencyController.formatPrice(ad.price!),
-                                      style: TextStyle(
-                                        fontFamily: AppTextStyles.appFontFamily,
-                                        fontSize: AppTextStyles.small,
- // من 13.5 -> 14
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.buttonAndLinksColor,
-                                        overflow: TextOverflow.ellipsis,
-                                        
-                                      ),
-                                      
+                              ImagesViewer(
+                                images: ad.images,
+                                width: _imgW.w,
+                                height: _cardH.h,
+                                isCompactMode: true,
+                                enableZoom: true,
+                                fit: BoxFit.cover,
+                                showPageIndicator: ad.images.length > 1,
+                                imageQuality: ImageQuality.high,
+                              ),
+                              Visibility(
+                                visible: ad.show_time == 1,
+                                child: Positioned(
+                                  top: 4.w,
+                                  left: 4.w,
+                                  child: Container(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 6.w,
+                                      vertical: 2.h,
                                     ),
-                                  ),
-                                ),SizedBox(
-                                        width: 120.w,
-                                        child:
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                 
-SizedBox(
-                                        width: 100.w,
-                                  child:      Text(
-                                    
-                                       '${city?.name??""}, ${ad.area?.name.toString()??""}',
-                                          style: TextStyle(
-                                            fontFamily: AppTextStyles.appFontFamily,
-                                            fontSize: 11.sp, // من 10.5 -> 11
-                                            color: AppColors.textSecondary(themeController.isDarkMode.value),
-                                            overflow: TextOverflow.clip,
-                                            
-                                          ),
-                                          textAlign: TextAlign.end,
-                                          maxLines: 1,
-)),
-                                     
-                                    SizedBox(width: 4.w),
-                                    Icon(Icons.location_on, size: 11.sp, color: AppColors.grey),
-                                  ],
-                                )),
-                              ],
-                            ),
-
-                        ],
-                      ),
-                    ),
-
-                    SizedBox(width: 6.w),
-
-                    // عارض الصور المدمج (كبرته قليلاً لكن نفس المكان)
-                    if (ad.images.isNotEmpty)
-                      Container(
-                        width: 125.w, // من 120 -> 140
-                        height: 90.h, // من 80 -> 90
-                        child: Stack(
-                          children: [
-                            ImagesViewer(
-                              images: ad.images,
-                              width: 125.w,
-                              height:90.h,
-                              isCompactMode: true,
-                              enableZoom: true,
-                              fit: BoxFit.cover,
-                              showPageIndicator: ad.images.length > 1,
-                              imageQuality: ImageQuality.high,
-                            ),
-
-                            Visibility(
-                              visible: ad.show_time == 1,
-                              child: Positioned(
-                                top: 6.w,
-                                left: 6.w,
-                                child: Container(
-                                  padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.4),
-                                    borderRadius: BorderRadius.circular(8.r),
-                                  ),
-                                  child: Text(
-                                    _formatDate(ad.createdAt),
-                                    style: TextStyle(
-                                      fontFamily: AppTextStyles.appFontFamily,
-                                      fontSize: 11.sp,
-                                      color: Colors.white,
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.4),
+                                      borderRadius: BorderRadius.circular(8.r),
+                                    ),
+                                    child: Text(
+                                      _formatDate(ad.createdAt),
+                                      style: TextStyle(
+                                        fontFamily:
+                                            AppTextStyles.appFontFamily,
+                                        fontSize: 9.sp,
+                                        color: Colors.white,
+                                        height: 1.0,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
+                            ],
+                          ),
+                        )
+                      else
+                        SizedBox(
+                          width: _imgW.w,
+                          child: Container(
+                            color: AppColors.grey.withOpacity(0.15),
+                            child: Center(
+                              child: Icon(
+                                Icons.broken_image,
+                                size: 16.sp,
+                                color: AppColors.grey,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                      SizedBox(width: 6.w),
+
+                      // المحتوى النصي
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // العنوان + بادج بريميوم
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Padding(
+                                    padding: EdgeInsets.only(top: 7.h),
+                                    child: Text(
+                                      ad.title,
+                                      style: TextStyle(
+                                        fontFamily:
+                                            AppTextStyles.appFontFamily,
+                                        fontSize: AppTextStyles.medium,
+                                        fontWeight: FontWeight.w400,
+                                        color: AppColors.textPrimary(isDarkMode),
+                                        height: 1.15,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(width: 6.w),
+                                _buildPremiumBadge(),
+                              ],
+                            ),
+
+                            // السطر السفلي: الموقع ثم السعر
+                            Row(
+                              children: [
+                                // الموقع
+                                Flexible(
+                                  fit: FlexFit.tight,
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.location_on,
+                                        size: 12.sp,
+                                        color: AppColors.grey,
+                                      ),
+                                      SizedBox(width: 2.w),
+                                      Expanded(
+                                        child: Text(
+                                          locationText,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.start,
+                                          style: TextStyle(
+                                            fontFamily:
+                                                AppTextStyles.appFontFamily,
+                                            fontSize: 10.5.sp,
+                                            color: AppColors.textSecondary(
+                                                isDarkMode),
+                                            height: 1.0,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                                // السعر
+                                if (ad.price != null)
+                                  Text(
+                                    currencyController.formatPrice(ad.price!),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontFamily:
+                                          AppTextStyles.appFontFamily,
+                                      fontSize: AppTextStyles.small,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.backgroundDark,
+                                      height: 1.0,
+                                    ),
+                                  ),
+                              ],
                             ),
                           ],
                         ),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
 
-                SizedBox(height: 4.w),
+                SizedBox(height: 2.h),
 
                 Divider(
                   height: 1,
                   thickness: 0.3,
                   color: AppColors.grey.withOpacity(0.7),
                 ),
-
               ],
             ),
           ),
@@ -213,20 +252,17 @@ SizedBox(
     );
   }
 
-
-  // PREMIUM BADGE — يدعم الوضع الداكن بخيارات ألوان مناسبة
+  // PREMIUM BADGE — يدعم الوضع الداكن
   Widget _buildPremiumBadge() {
     if (ad.is_premium != true) {
-      return Container(
-        padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
-      );
+      return const SizedBox.shrink();
     }
 
     final themeController = Get.find<ThemeController>();
     final bool isDark = themeController.isDarkMode.value;
 
     final List<Color> gradientColors = isDark
-        ? [Color(0xFFFFD186), Color(0xFFFFB74D)] // ألوان للـ dark
+        ? [const Color(0xFFFFD186), const Color(0xFFFFB74D)]
         : [
             AppColors.PremiumColor,
             const Color.fromARGB(246, 235, 235, 225).withOpacity(0.1),
@@ -256,10 +292,11 @@ SizedBox(
       ),
     );
   }
+
   String _formatDate(DateTime date) {
     final now = DateTime.now();
     final difference = now.difference(date);
-    
+
     if (difference.inDays > 0) {
       return '${'قبل'.tr} ${difference.inDays} ${'يوم'.tr}';
     } else if (difference.inHours > 0) {
@@ -270,5 +307,4 @@ SizedBox(
       return 'الآن'.tr;
     }
   }
-
 }

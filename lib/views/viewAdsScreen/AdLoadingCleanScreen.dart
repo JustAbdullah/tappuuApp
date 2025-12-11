@@ -10,7 +10,7 @@ import '../../views/HomeScreen/home_screen.dart';
 import '../../core/constant/app_text_styles.dart';
 import '../../core/constant/appcolors.dart';
 import '../../core/constant/images_path.dart';
-import 'AdDetailsScreen.dart'; // عدّل المسار إذا لازم
+import 'AdDetailsScreen.dart'; 
 
 class AdLoadingCleanScreen extends StatefulWidget {
   final String adId;
