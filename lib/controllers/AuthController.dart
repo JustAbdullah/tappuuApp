@@ -10,7 +10,6 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:tappuu_app/views/HomeScreen/home_screen.dart';
-import 'package:tappuu_app/views/HomeScreen/home_screen.dart';
 
 import '../core/constant/appcolors.dart';
 import '../core/data/model/user.dart' as users;

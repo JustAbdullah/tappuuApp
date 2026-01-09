@@ -12,6 +12,7 @@ import 'package:tappuu_app/core/constant/app_text_styles.dart';
 import 'package:tappuu_app/views/viewAdsScreen/AdsScreen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 
 import '../../controllers/CurrencyController.dart';
 import '../../controllers/FavoriteSellerController.dart';
@@ -61,11 +62,6 @@ final AdReportController _reportController = Get.put(AdReportController());
   int _selectedTabIndex = 0;
 
   // متغيرات جديدة لدعم الفيديوهات
-  VideoPlayerController? _videoController;
-  ChewieController? _chewieController;
-  bool _isVideoPlaying = false;
-  String? _playingVideoUrl;
-  bool _videoError = false;
 
   @override
   void initState() {
@@ -95,8 +91,6 @@ void _safeCloseDialogOne() {
 }
   @override
   void dispose() {
-    _videoController?.dispose();
-    _chewieController?.dispose();
     final sharedController = Get.find<SharedController>();
     sharedController.markDeepLinkHandled();
         _scrollController.dispose();
@@ -123,57 +117,8 @@ void _safeCloseDialogOne() {
     }
   }
 
-  void _cleanUpVideoControllers() {
-    if (_videoController != null) {
-      _videoController!.dispose();
-      _videoController = null;
-    }
-    if (_chewieController != null) {
-      _chewieController!.dispose();
-      _chewieController = null;
-    }
-    if (mounted) {
-      setState(() {
-        _isVideoPlaying = false;
-        _playingVideoUrl = null;
-        _videoError = false;
-      });
-    }
-  }
+ 
 
-  void _initializeVideoPlayer(String videoUrl) async {
-    _cleanUpVideoControllers();
-
-    setState(() {
-      _isVideoPlaying = false;
-      _videoError = false;
-      _playingVideoUrl = videoUrl;
-    });
-
-    try {
-      _videoController = VideoPlayerController.network(videoUrl);
-      await _videoController!.initialize();
-
-      if (!mounted) return;
-
-      _chewieController = ChewieController(
-        videoPlayerController: _videoController!,
-        autoPlay: true,
-        looping: false,
-        allowFullScreen: true,
-        aspectRatio: _videoController!.value.aspectRatio,
-        showControls: true,
-      );
-
-      setState(() {
-        _isVideoPlaying = true;
-      });
-    } catch (e) {
-      setState(() {
-        _videoError = true;
-      });
-    }
-  }
 
 
 
@@ -960,15 +905,7 @@ Future<bool> _setNotificationPreference(int userId, int groupId, double? targetP
 
 
 //////////
-  void _stopVideo() {
-    if (_chewieController != null && _chewieController!.isPlaying) {
-      _chewieController!.pause();
-    }
-    setState(() {
-      _isVideoPlaying = false;
-      _playingVideoUrl = null;
-    });
-  }
+
 
 
 ///////////////
@@ -1288,8 +1225,6 @@ void _showReportDialog() {
 
     return WillPopScope(
       onWillPop: () async {
-        _cleanUpVideoControllers();
-        _stopVideo();
         try {
           final shared = Get.find<SharedController>();
           shared.isNavigatingToAd.value = false;
@@ -1319,8 +1254,7 @@ void _showReportDialog() {
                           SizedBox(width:10.w,),
                           InkWell(
                             onTap: (){
-                              _cleanUpVideoControllers();
-                              _stopVideo();
+                              ();
                                // أغلق أي Snackbar مفتوح أولاً
                               if (Get.isSnackbarOpen ?? false) {
                                 Get.closeAllSnackbars();
@@ -1413,16 +1347,13 @@ void _showReportDialog() {
                 height: 300.h,
                 width: double.infinity,
                 child: _MediaGallery(
-                  images: widget.ad.images,
-                  videos: widget.ad.videos,
-                  width: double.infinity,
-                  height: 300.h,
-                  onVideoTap: (videoUrl) => _initializeVideoPlayer(videoUrl),
-                  playingVideoUrl: _playingVideoUrl,
-                  isVideoPlaying: _isVideoPlaying,
-                  videoError: _videoError,
-                  ad: widget.ad,
-                ),
+  images: widget.ad.images,
+  videos: widget.ad.videos,
+  width: double.infinity,
+  height: 300.h,
+  ad: widget.ad,
+),
+
               ),
             ),
             SliverToBoxAdapter(
@@ -1947,25 +1878,66 @@ Widget _buildInteractiveMap(double latitude, double longitude, double mapHeight)
   );
 }
 
-// -----------------------------
-// دالة فتح Google Maps (تمرير إحداثيات الإعلان فقط)
-// -----------------------------
 Future<void> _openInGoogleMaps(double lat, double lng) async {
   final q = Uri.encodeComponent('$lat,$lng');
-  final googleMapsUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$q');
-  if (await canLaunchUrl(googleMapsUrl)) {
-    await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication);
-    return;
+
+  // 1) رابط بحث (يفتح في المتصفح غالبًا)
+  final urlSearch = Uri.parse(
+    'https://www.google.com/maps/search/?api=1&query=$q',
+  );
+
+  // 2) رابط اتجاهات (أحيانًا يشتغل لما search يفشل)
+  final urlDir = Uri.parse(
+    'https://www.google.com/maps/dir/?api=1&destination=$q&travelmode=driving',
+  );
+
+  try {
+    // ✅ WEB: افتح تبويب جديد مباشرة (بدون canLaunchUrl)
+    if (kIsWeb) {
+      final ok = await launchUrl(
+        urlSearch,
+        mode: LaunchMode.platformDefault,
+        webOnlyWindowName: '_blank',
+      );
+      if (ok) return;
+
+      final ok2 = await launchUrl(
+        urlDir,
+        mode: LaunchMode.platformDefault,
+        webOnlyWindowName: '_blank',
+      );
+      if (ok2) return;
+    } else {
+      // ✅ Mobile: جرّب فتحه في المتصفح الخارجي
+      final ok = await launchUrl(urlSearch, mode: LaunchMode.externalApplication);
+      if (ok) return;
+
+      final ok2 = await launchUrl(urlDir, mode: LaunchMode.externalApplication);
+      if (ok2) return;
+
+      // ✅ fallback: افتح داخل التطبيق (Custom Tabs / SFSafariViewController)
+      final ok3 = await launchUrl(urlSearch, mode: LaunchMode.inAppBrowserView);
+      if (ok3) return;
+
+      final ok4 = await launchUrl(urlDir, mode: LaunchMode.inAppBrowserView);
+      if (ok4) return;
+
+      // ✅ Android fallback أخير
+      final geo = Uri.parse('geo:$lat,$lng?q=$lat,$lng');
+      await launchUrl(geo, mode: LaunchMode.externalApplication);
+      return;
+    }
+  } catch (_) {
+    // نطيح للفشل النهائي تحت
   }
 
-  // فشل، حاول استخدام geo: كبديل
-  final geo = Uri.parse('geo:$lat,$lng?q=$lat,$lng');
-  if (await canLaunchUrl(geo)) {
-    await launchUrl(geo, mode: LaunchMode.externalApplication);
-    return;
-  }
-
-  Get.snackbar('خطأ', 'تعذر فتح خرائط. تأكد من وجود متصفح أو تطبيق خرائط.', backgroundColor: Colors.red);
+  Get.snackbar(
+    'خطأ',
+    'فشل فتح الخرائط. غالبًا المتصفح يمنع فتح نافذة جديدة أو ما في متصفح افتراضي مضبوط.',
+    snackPosition: SnackPosition.BOTTOM,
+    backgroundColor: Colors.red,
+    colorText: Colors.white,
+  );
 }
 
 
@@ -2776,7 +2748,6 @@ String _formatNumericDate(DateTime date) {
   final year = date.year.toString();
   return '$year-$month-$day';
 }
-
 class _MediaGallery extends StatefulWidget {
   final List<String> images;
   final List<String> videos;
@@ -2784,62 +2755,73 @@ class _MediaGallery extends StatefulWidget {
   final double height;
   final Ad ad;
 
-  // للحفاظ على التوافق مع الكود القديم في AdDetailsScreen
-  final void Function(String)? onVideoTap;
-  final String? playingVideoUrl;
-  final bool isVideoPlaying;
-  final bool videoError;
-
   const _MediaGallery({
+    super.key,
     required this.images,
     required this.videos,
     required this.width,
     required this.height,
     required this.ad,
-    this.onVideoTap,
-    this.playingVideoUrl,
-    this.isVideoPlaying = false,
-    this.videoError = false,
   });
 
   @override
   _MediaGalleryState createState() => _MediaGalleryState();
 }
 
-class _MediaGalleryState extends State<_MediaGallery> {
+class _MediaGalleryState extends State<_MediaGallery> with WidgetsBindingObserver {
   late final PageController _pageController;
   int _currentIndex = 0;
 
-  // 🎥 إدارة الفيديو داخلياً
   VideoPlayerController? _videoController;
   ChewieController? _chewieController;
   String? _currentVideoUrl;
+
   bool _isInitializing = false;
   bool _videoError = false;
   String? _videoErrorMessage;
 
-  List<MediaItem> get _mediaItems {
-    return [
-      ...widget.images.map(
-        (url) => MediaItem(type: MediaType.image, url: url),
-      ),
-      ...widget.videos.map(
-        (url) => MediaItem(type: MediaType.video, url: url),
-      ),
-    ];
+  bool _wasPlayingBefore = false;
+
+  List<MediaItem> get _mediaItems => [
+        ...widget.images.map((u) => MediaItem(type: MediaType.image, url: u)),
+        ...widget.videos.map((u) => MediaItem(type: MediaType.video, url: u)),
+      ];
+
+  bool get _isActiveVideo {
+    final items = _mediaItems;
+    if (items.isEmpty) return false;
+    if (_currentIndex < 0 || _currentIndex >= items.length) return false;
+
+    final it = items[_currentIndex];
+    return it.type == MediaType.video &&
+        _currentVideoUrl == it.url &&
+        _videoController != null &&
+        _videoController!.value.isInitialized &&
+        _chewieController != null &&
+        !_videoError &&
+        !_isInitializing;
   }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pageController = PageController();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _disposeVideoControllers();
     _pageController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      _videoController?.pause();
+    }
   }
 
   void _disposeVideoControllers() {
@@ -2853,50 +2835,51 @@ class _MediaGalleryState extends State<_MediaGallery> {
     _chewieController = null;
     _videoController = null;
     _currentVideoUrl = null;
+
     _isInitializing = false;
     _videoError = false;
     _videoErrorMessage = null;
+    _wasPlayingBefore = false;
   }
 
   @override
   Widget build(BuildContext context) {
     final items = _mediaItems;
+
     if (items.isEmpty) {
-      return Center(
-        child: Icon(
-          Icons.image,
-          size: 100.w,
-          color: Colors.grey,
-        ),
-      );
+      return Center(child: Icon(Icons.image, size: 100.w, color: Colors.grey));
     }
 
     return Container(
       color: Colors.white,
       child: Stack(
         children: [
-          // ================= SLIDER الرئيسي =================
           PageView.builder(
             controller: _pageController,
             itemCount: items.length,
+
+            // ✅ اقفل السحب لما يكون فيديو شغال عشان Chewie يستقبل اللمس 100%
+            physics: _isActiveVideo ? const NeverScrollableScrollPhysics() : const BouncingScrollPhysics(),
+
             onPageChanged: (i) {
               setState(() => _currentIndex = i);
 
-              // لو تركنا صفحة الفيديو – نوقفه بس
-              if (_videoController != null &&
-                  _videoController!.value.isPlaying) {
-                _videoController!.pause();
+              final it = items[i];
+              // طلعت من فيديو أو انتقلت لفيديو ثاني → نظّف الكنترولرز
+              if (it.type != MediaType.video) {
+                _disposeVideoControllers();
+              } else if (_currentVideoUrl != it.url) {
+                _disposeVideoControllers();
               }
             },
+
             itemBuilder: (ctx, index) {
               final item = items[index];
 
               if (item.type == MediaType.video) {
-                // هذا الفيديو هو الحالي؟
+                // نفس الفيديو الحالي
                 if (_currentVideoUrl == item.url) {
-                  if (_videoError) {
-                    return _buildVideoErrorState(item.url);
-                  }
+                  if (_videoError) return _buildVideoErrorState(item.url);
 
                   if (_isInitializing ||
                       _videoController == null ||
@@ -2906,67 +2889,66 @@ class _MediaGalleryState extends State<_MediaGallery> {
                   }
 
                   return _buildActiveVideoPlayer(item.url);
-                } else {
-                  // مجرد ثامبنيل
-                  return _buildVideoThumbnail(item.url);
                 }
+
+                // فيديو غير مفتوح -> ثامنيل
+                return _buildVideoThumbnail(item.url);
               }
 
-              // صورة
               return _buildImageDisplay(item.url);
             },
           ),
 
-          // ================= عدّاد الصفحات =================
+          // overlays كلها IgnorePointer عشان ما تقتل تحكم الفيديو
           Positioned(
             bottom: 10.h,
             left: 0,
             right: 0,
-            child: Center(
-              child: Container(
-                padding:
-                    EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(12.r),
-                ),
-                child: Text(
-                  '${_currentIndex + 1}/${items.length}',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: AppTextStyles.medium,
-                    fontFamily: AppTextStyles.appFontFamily,
+            child: IgnorePointer(
+              child: Center(
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(12.r),
                   ),
-                  textAlign: TextAlign.center,
+                  child: Text(
+                    '${_currentIndex + 1}/${items.length}',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: AppTextStyles.medium,
+                      fontFamily: AppTextStyles.appFontFamily,
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
 
-          // ================= شريط سفلي بسيط =================
           Positioned(
             bottom: 0.h,
             right: 0.w,
             left: 0.w,
-            child: Divider(
-              height: 5,
-              thickness: 5,
-              color: const Color(0XFF40485D),
+            child: IgnorePointer(
+              child: Divider(
+                height: 5,
+                thickness: 5,
+                color: const Color(0XFF40485D),
+              ),
             ),
           ),
 
-          // ================= شارة Premium =================
           Positioned(
             bottom: 2.h,
             right: 12.w,
-            child: _buildPremiumBadge(widget.ad),
+            child: IgnorePointer(child: _buildPremiumBadge(widget.ad)),
           ),
         ],
       ),
     );
   }
 
-  // ===================== إدارة الفيديو =====================
+  // ===================== فيديو =====================
 
   Widget _buildVideoLoadingState() {
     return Container(
@@ -2992,12 +2974,9 @@ class _MediaGalleryState extends State<_MediaGallery> {
   }
 
   Future<void> _openOrPlayVideo(String url) async {
-    debugPrint('🎥 Trying to play video URL => $url');
+    debugPrint('🎥 play => $url');
 
-    // كولباك خارجي لو حاب تتبع النقرات
-    widget.onVideoTap?.call(url);
-
-    // نفس الفيديو ومتهيّأ → Toggle Play/Pause
+    // toggle لو نفس الفيديو جاهز
     if (_currentVideoUrl == url &&
         _videoController != null &&
         _videoController!.value.isInitialized &&
@@ -3007,9 +2986,11 @@ class _MediaGalleryState extends State<_MediaGallery> {
       } else {
         await _videoController!.play();
       }
-      setState(() {});
+      if (mounted) setState(() {});
       return;
     }
+
+    if (_isInitializing) return;
 
     _disposeVideoControllers();
     setState(() {
@@ -3017,33 +2998,39 @@ class _MediaGalleryState extends State<_MediaGallery> {
       _isInitializing = true;
       _videoError = false;
       _videoErrorMessage = null;
+      _wasPlayingBefore = false;
     });
 
     try {
-      // مهم: استخدم networkUrl لو متاح
-      final controller = VideoPlayerController.networkUrl(Uri.parse(url));
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(url),
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
+      );
       _videoController = controller;
 
       controller.addListener(() {
         if (!mounted) return;
-        final value = controller.value;
+        final v = controller.value;
 
-        if (value.hasError && !_videoError) {
+        // error
+        if (v.hasError && !_videoError) {
           setState(() {
             _videoError = true;
-            _videoErrorMessage = value.errorDescription;
+            _videoErrorMessage = v.errorDescription;
             _isInitializing = false;
           });
-        } else if (value.isInitialized && _isInitializing) {
-          setState(() {
-            _isInitializing = false;
-          });
+          return;
         }
+
+        // ✅ Workaround: أحيانًا يصير “loading” ويفصل الكنترولز — نعيد play لو كان موقوف فجأة
+        if (v.isInitialized && !v.isPlaying && !_wasPlayingBefore && !_videoError && !_isInitializing) {
+          controller.play();
+        }
+        _wasPlayingBefore = v.isPlaying;
       });
 
-      // ❌ بدون timeout يدوي – نخلي النظام/الشبكة تقرر
-      await controller.initialize();
-
+      // ✅ لا تخليه يعلق للأبد
+      await controller.initialize().timeout(const Duration(seconds: 12));
       if (!mounted) return;
 
       if (controller.value.hasError) {
@@ -3055,17 +3042,25 @@ class _MediaGalleryState extends State<_MediaGallery> {
         return;
       }
 
+      // ✅ Chewie spinner يعلّق كثير على Web/Android -> نخفيه
+      final disableChewieSpinner = kIsWeb || defaultTargetPlatform == TargetPlatform.android;
+
       final chewie = ChewieController(
         videoPlayerController: controller,
+        autoInitialize: true,
         autoPlay: true,
         looping: false,
         allowFullScreen: true,
-        aspectRatio: controller.value.aspectRatio == 0
-            ? 16 / 9
-            : controller.value.aspectRatio,
+        allowMuting: true,
         showControls: true,
-        // بدون placeholder عشان ما يظل سبينر فوق الفيديو
-        errorBuilder: (_, __) => _buildVideoErrorState(url),
+        showControlsOnInitialize: true,
+        allowedScreenSleep: false,
+
+        // 🔥 الحل: يخلي Chewie ما يعرض “loading” نهائيًا (ونحن عندنا overlay buffering الخاص بنا)
+        progressIndicatorDelay: disableChewieSpinner ? const Duration(days: 1) : null,
+
+        aspectRatio: controller.value.aspectRatio == 0 ? 16 / 9 : controller.value.aspectRatio,
+        errorBuilder: (_, msg) => _buildVideoErrorState(url, overrideMessage: msg),
       );
 
       setState(() {
@@ -3075,9 +3070,15 @@ class _MediaGalleryState extends State<_MediaGallery> {
         _videoErrorMessage = null;
       });
 
-      controller.play();
+      await controller.play();
+    } on TimeoutException {
+      if (!mounted) return;
+      setState(() {
+        _isInitializing = false;
+        _videoError = true;
+        _videoErrorMessage = 'Timeout أثناء تحميل الفيديو.';
+      });
     } catch (e) {
-      debugPrint('🎥 Video init error: $e');
       if (!mounted) return;
       setState(() {
         _isInitializing = false;
@@ -3088,16 +3089,41 @@ class _MediaGalleryState extends State<_MediaGallery> {
   }
 
   Widget _buildActiveVideoPlayer(String url) {
-    if (_chewieController == null ||
-        _videoController == null ||
-        !_videoController!.value.isInitialized) {
+    final vc = _videoController;
+    final cc = _chewieController;
+
+    if (vc == null || cc == null || !vc.value.isInitialized) {
       return _buildVideoLoadingState();
     }
 
+    final ratio = vc.value.aspectRatio == 0 ? 16 / 9 : vc.value.aspectRatio;
+
     return Container(
       color: Colors.black,
-      child: Chewie(
-        controller: _chewieController!,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: AspectRatio(
+              aspectRatio: ratio,
+              child: Chewie(
+                key: ValueKey('chewie_$url'),
+                controller: cc,
+              ),
+            ),
+          ),
+
+          // ✅ overlay buffering الخاص بنا (بدل سبنر Chewie اللي يعلق)
+          if (vc.value.isBuffering)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  color: Colors.black26,
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -3116,11 +3142,7 @@ class _MediaGalleryState extends State<_MediaGallery> {
             errorBuilder: (_, __, ___) => Container(
               color: Colors.grey[800],
               child: Center(
-                child: Icon(
-                  Icons.videocam_off,
-                  size: 50.w,
-                  color: Colors.grey,
-                ),
+                child: Icon(Icons.videocam_off, size: 50.w, color: Colors.grey),
               ),
             ),
           ),
@@ -3132,11 +3154,7 @@ class _MediaGalleryState extends State<_MediaGallery> {
                 color: Colors.black54,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                Icons.play_arrow,
-                size: 50.w,
-                color: Colors.white,
-              ),
+              child: Icon(Icons.play_arrow, size: 50.w, color: Colors.white),
             ),
           ),
           Positioned(
@@ -3163,7 +3181,9 @@ class _MediaGalleryState extends State<_MediaGallery> {
     );
   }
 
-  Widget _buildVideoErrorState(String url) {
+  Widget _buildVideoErrorState(String url, {String? overrideMessage}) {
+    final msg = overrideMessage ?? _videoErrorMessage;
+
     return Container(
       color: Colors.grey[900],
       child: Center(
@@ -3181,12 +3201,12 @@ class _MediaGalleryState extends State<_MediaGallery> {
                 fontFamily: AppTextStyles.appFontFamily,
               ),
             ),
-            if (_videoErrorMessage != null) ...[
+            if (msg != null) ...[
               SizedBox(height: 10.h),
               Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16.w),
                 child: Text(
-                  _videoErrorMessage!,
+                  msg,
                   style: TextStyle(
                     fontSize: AppTextStyles.small,
                     color: Colors.grey[300],
@@ -3203,10 +3223,7 @@ class _MediaGalleryState extends State<_MediaGallery> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(
-                  horizontal: 24.w,
-                  vertical: 12.h,
-                ),
+                padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 12.h),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30.r),
                 ),
@@ -3222,7 +3239,7 @@ class _MediaGalleryState extends State<_MediaGallery> {
   String _getVideoThumbnail(String url) =>
       'https://img.freepik.com/free-photo/abstract-blur-empty-green-gradient-studio-well-use-as-background-website-template-frame-business-report_1258-54622.jpg';
 
-  // ===================== الصور =====================
+  // ===================== صور =====================
 
   Widget _buildImageDisplay(String url) {
     return Image.network(
@@ -3262,12 +3279,8 @@ class _MediaGalleryState extends State<_MediaGallery> {
     );
   }
 
-  // ===================== Premium Badge =====================
-
   Widget _buildPremiumBadge(Ad ad) {
-    if (ad.is_premium != true) {
-      return const SizedBox.shrink();
-    }
+    if (ad.is_premium != true) return const SizedBox.shrink();
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 0.h),
       decoration: BoxDecoration(
@@ -3297,8 +3310,6 @@ class _MediaGalleryState extends State<_MediaGallery> {
     );
   }
 }
-
-// ================= MODELS =================
 
 enum MediaType { image, video }
 

@@ -44,10 +44,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
   final expiryCtrl = TextEditingController();
   final cvvCtrl = TextEditingController();
 
-  String get initialPaymentMethod {
-    return _cardPaymentController.isEnabled.value ? 'card' : 'wallet';
-  }
-  
   String selectedPaymentMethod = 'wallet';
   bool isProcessing = false;
   UserWallet? selectedWallet;
@@ -55,12 +51,40 @@ class _PaymentScreenState extends State<PaymentScreen> {
   final fmt = NumberFormat('#,##0', 'en_US');
   final ScrollController _scrollController = ScrollController();
 
+  String get initialPaymentMethod => _cardPaymentController.isEnabled.value ? 'card' : 'wallet';
+
   @override
   void initState() {
     super.initState();
-    _fetchUserWallets();
-    selectedPaymentMethod = initialPaymentMethod;
-    _cardPaymentController.fetchSetting();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    try {
+      await _cardPaymentController.fetchSetting();
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() => selectedPaymentMethod = initialPaymentMethod);
+    }
+
+    await _fetchUserWallets();
+
+    // اختيار محفظة نشطة افتراضيًا (اختياري لكن يخفف احتكاك المستخدم)
+    if (!mounted) return;
+    if (selectedWallet == null && walletController.userWallets.isNotEmpty) {
+      UserWallet? firstActive;
+      for (final w in walletController.userWallets) {
+        final st = (w.status ?? '').toString().toLowerCase();
+        if (st == 'active') {
+          firstActive = w;
+          break;
+        }
+      }
+      if (firstActive != null) {
+        setState(() => selectedWallet = firstActive);
+      }
+    }
   }
 
   Future<void> _fetchUserWallets() async {
@@ -87,6 +111,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         return out;
       }
     } catch (e) {
+      // ignore: avoid_print
       print('⚠️ _packageListFromWidget parse error: $e');
     }
     return out;
@@ -122,9 +147,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     return 'متعددة';
   }
 
-  String _formatPrice(double price) {
-    return '${fmt.format(price)} ليرة سورية';
-  }
+  String _formatPrice(double price) => '${fmt.format(price)} ليرة سورية';
 
   bool _hasSufficientBalance() {
     if (selectedWallet == null) return false;
@@ -163,89 +186,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
     return '${uuid.substring(0, 8)}...${uuid.substring(uuid.length - 4)}';
   }
 
-  Future<void> _processPayment() async {
-    FocusScope.of(context).unfocus();
-    
-    if (selectedPaymentMethod == 'card' && !_formKey.currentState!.validate()) return;
-
-    if (selectedPaymentMethod == 'wallet') {
-      if (selectedWallet == null) {
-        _showErrorSnackbar('خطأ', 'يرجى اختيار محفظة للدفع');
-        return;
-      }
-      
-      if (!_hasSufficientBalance()) {
-        _showErrorSnackbar('خطأ', 'ليس لديك رصيد كافي في المحفظة المختارة');
-        return;
-      }
-      
-      if ((selectedWallet!.status ?? '').toString().toLowerCase() != 'active') {
-        _showErrorSnackbar('خطأ', 'لا يمكن استخدام هذه المحفظة لأنها ليست نشطة');
-        return;
-      }
-    }
-
-    setState(() => isProcessing = true);
-    final packageIds = _extractPackageIdsFromWidgetPackage();
-    if (packageIds.isEmpty) {
-      _showErrorSnackbar('خطأ', 'لا توجد باقات صالحة للاشتراك');
-      setState(() => isProcessing = false);
-      return;
-    }
-
-    try {
-      if (selectedPaymentMethod == 'wallet') {
-        final bool isSingle = _packageListFromWidget().length == 1;
-        final PremiumPackage? firstPkg = isSingle ? _packageListFromWidget().first : null;
-
-        final int? createdAdId = await _submitAdAndGetId(forPackage: firstPkg, isSinglePackage: isSingle);
-        if (createdAdId == null) {
-          setState(() => isProcessing = false);
-          return;
-        }
-
-        final result = await walletController.purchasePremium(
-          walletUuid: selectedWallet!.uuid, 
-          adId: createdAdId, 
-          packageIds: packageIds
-        );
-
-        if (result != null && result['success'] == true) {
-          _showSuccessSnackbar('نجاح', 'تم شراء/تجديد الباقات بنجاح');
-          _navigateToHome();
-        } else {
-          final body = result != null ? result['body'] : null;
-          final message = body != null && body['message'] != null ? body['message'] : 'فشل شراء/تجديد الباقات';
-          _showErrorSnackbar('خطأ', message);
-        }
-      } else {
-        await Future.delayed(Duration(seconds: 2));
-        _showSuccessSnackbar('نجاح', 'تمت عملية الدفع بالبطاقة بنجاح');
-
-        final bool isSingle = _packageListFromWidget().length == 1;
-        final PremiumPackage? firstPkg = isSingle ? _packageListFromWidget().first : null;
-        final int? createdAdId = await _submitAdAndGetId(forPackage: firstPkg, isSinglePackage: isSingle);
-        if (createdAdId == null) {
-          setState(() => isProcessing = false);
-          return;
-        }
-
-        if (!isSingle) {
-          _showInfoSnackbar('ملاحظة', 'لقد دفعت بالبطاقة وتم إنشاء الإعلان. لربط الباقات المتعددة يرجى استخدام المحفظة أو التواصل مع الدعم.');
-        } else {
-          _showSuccessSnackbar('نجاح', 'تم إنشاء الإعلان بنجاح وهو قيد المراجعة');
-        }
-
-        _navigateToHome();
-      }
-    } catch (e, st) {
-      print('⚠️ _processPayment exception: $e\n$st');
-      _showErrorSnackbar('خطأ', 'حدث خطأ أثناء عملية الدفع: ${e.toString()}');
-    } finally {
-      setState(() => isProcessing = false);
-    }
-  }
-
   void _showErrorSnackbar(String title, String message) {
     Get.snackbar(
       title,
@@ -253,7 +193,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       snackPosition: SnackPosition.BOTTOM,
       backgroundColor: Colors.red,
       colorText: Colors.white,
-      margin: EdgeInsets.all(16),
+      margin: const EdgeInsets.all(16),
       borderRadius: 12,
     );
   }
@@ -265,7 +205,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       snackPosition: SnackPosition.BOTTOM,
       backgroundColor: Colors.green,
       colorText: Colors.white,
-      margin: EdgeInsets.all(16),
+      margin: const EdgeInsets.all(16),
       borderRadius: 12,
     );
   }
@@ -277,9 +217,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
       snackPosition: SnackPosition.BOTTOM,
       backgroundColor: Colors.orange,
       colorText: Colors.white,
-      margin: EdgeInsets.all(16),
+      margin: const EdgeInsets.all(16),
       borderRadius: 12,
-      duration: Duration(seconds: 5),
+      duration: const Duration(seconds: 5),
     );
   }
 
@@ -311,6 +251,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         }
       }
     } catch (e) {
+      // ignore: avoid_print
       print('⚠️ _parseCreatedAdId error: $e');
     }
     return null;
@@ -340,6 +281,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       }
       return null;
     } catch (e) {
+      // ignore: avoid_print
       print('⚠️ _submitAdAndGetId exception: $e');
       _showErrorSnackbar('خطأ', 'حدث خطأ أثناء إنشاء الإعلان: ${e.toString()}');
       return null;
@@ -349,6 +291,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   void _showLoadingDialog() {
+    final isDark = themeController.isDarkMode.value;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -361,7 +304,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             child: Container(
               padding: EdgeInsets.all(24.w),
               decoration: BoxDecoration(
-                color: AppColors.card(themeController.isDarkMode.value),
+                color: AppColors.card(isDark),
                 borderRadius: BorderRadius.circular(20.r),
                 boxShadow: [
                   BoxShadow(
@@ -384,7 +327,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       fontFamily: AppTextStyles.appFontFamily,
                       fontSize: 16.sp,
                       fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary(themeController.isDarkMode.value),
+                      color: AppColors.textPrimary(isDark),
                     ),
                   ),
                   SizedBox(height: 8.h),
@@ -393,7 +336,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     style: TextStyle(
                       fontFamily: AppTextStyles.appFontFamily,
                       fontSize: 13.sp,
-                      color: AppColors.textSecondary(themeController.isDarkMode.value),
+                      color: AppColors.textSecondary(isDark),
                     ),
                   ),
                 ],
@@ -403,16 +346,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
         );
       },
     );
-  }
-
-  @override
-  void dispose() {
-    cardNumberCtrl.dispose();
-    nameCtrl.dispose();
-    expiryCtrl.dispose();
-    cvvCtrl.dispose();
-    _scrollController.dispose();
-    super.dispose();
   }
 
   void _onCardNumberChanged(String val) {
@@ -430,9 +363,118 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
   }
 
+  void _onExpiryChanged(String val) {
+    final digits = val.replaceAll(RegExp(r'\D'), '');
+    String out = digits;
+    if (digits.length >= 3) {
+      out = '${digits.substring(0, 2)}/${digits.substring(2, digits.length > 4 ? 4 : digits.length)}';
+    }
+    if (out != expiryCtrl.text) {
+      expiryCtrl.value = TextEditingValue(
+        text: out,
+        selection: TextSelection.collapsed(offset: out.length),
+      );
+    }
+  }
+
+  bool _isValidExpiry(String v) {
+    final cleaned = v.replaceAll(RegExp(r'\s+'), '');
+    if (!RegExp(r'^\d{2}/\d{2}$').hasMatch(cleaned)) return false;
+    final mm = int.tryParse(cleaned.substring(0, 2)) ?? 0;
+    final yy = int.tryParse(cleaned.substring(3, 5)) ?? -1;
+    if (mm < 1 || mm > 12) return false;
+    if (yy < 0) return false;
+    return true;
+  }
+
+  Future<void> _processPayment() async {
+    FocusScope.of(context).unfocus();
+
+    if (selectedPaymentMethod == 'card' && !_formKey.currentState!.validate()) return;
+
+    if (selectedPaymentMethod == 'wallet') {
+      if (selectedWallet == null) {
+        _showErrorSnackbar('خطأ', 'يرجى اختيار محفظة للدفع');
+        return;
+      }
+
+      if (!_hasSufficientBalance()) {
+        _showErrorSnackbar('خطأ', 'ليس لديك رصيد كافي في المحفظة المختارة');
+        return;
+      }
+
+      if ((selectedWallet!.status ?? '').toString().toLowerCase() != 'active') {
+        _showErrorSnackbar('خطأ', 'لا يمكن استخدام هذه المحفظة لأنها ليست نشطة');
+        return;
+      }
+    }
+
+    setState(() => isProcessing = true);
+
+    final packageIds = _extractPackageIdsFromWidgetPackage();
+    if (packageIds.isEmpty) {
+      _showErrorSnackbar('خطأ', 'لا توجد باقات صالحة للاشتراك');
+      setState(() => isProcessing = false);
+      return;
+    }
+
+    try {
+      if (selectedPaymentMethod == 'wallet') {
+        final bool isSingle = _packageListFromWidget().length == 1;
+        final PremiumPackage? firstPkg = isSingle ? _packageListFromWidget().first : null;
+
+        final int? createdAdId = await _submitAdAndGetId(forPackage: firstPkg, isSinglePackage: isSingle);
+        if (createdAdId == null) {
+          setState(() => isProcessing = false);
+          return;
+        }
+
+        final result = await walletController.purchasePremium(
+          walletUuid: selectedWallet!.uuid,
+          adId: createdAdId,
+          packageIds: packageIds,
+        );
+
+        if (result != null && result['success'] == true) {
+          _showSuccessSnackbar('نجاح', 'تم شراء/تجديد الباقات بنجاح');
+          _navigateToHome();
+        } else {
+          final body = result != null ? result['body'] : null;
+          final message = body != null && body['message'] != null ? body['message'] : 'فشل شراء/تجديد الباقات';
+          _showErrorSnackbar('خطأ', message);
+        }
+      } else {
+        await Future.delayed(const Duration(seconds: 2));
+        _showSuccessSnackbar('نجاح', 'تمت عملية الدفع بالبطاقة بنجاح');
+
+        final bool isSingle = _packageListFromWidget().length == 1;
+        final PremiumPackage? firstPkg = isSingle ? _packageListFromWidget().first : null;
+        final int? createdAdId = await _submitAdAndGetId(forPackage: firstPkg, isSinglePackage: isSingle);
+        if (createdAdId == null) {
+          setState(() => isProcessing = false);
+          return;
+        }
+
+        if (!isSingle) {
+          _showInfoSnackbar('ملاحظة', 'لقد دفعت بالبطاقة وتم إنشاء الإعلان. لربط الباقات المتعددة يرجى استخدام المحفظة أو التواصل مع الدعم.');
+        } else {
+          _showSuccessSnackbar('نجاح', 'تم إنشاء الإعلان بنجاح وهو قيد المراجعة');
+        }
+
+        _navigateToHome();
+      }
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('⚠️ _processPayment exception: $e\n$st');
+      _showErrorSnackbar('خطأ', 'حدث خطأ أثناء عملية الدفع: ${e.toString()}');
+    } finally {
+      if (mounted) setState(() => isProcessing = false);
+    }
+  }
+
   Widget _buildCreditCardSection(bool isDark) {
     return AnimatedContainer(
-      duration: Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 300),
       child: Form(
         key: _formKey,
         child: Column(
@@ -490,9 +532,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
               controller: cardNumberCtrl,
               keyboardType: TextInputType.number,
               onChanged: _onCardNumberChanged,
+              autocorrect: false,
+              enableSuggestions: false,
               inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(19)
+                FilteringTextInputFormatter.allow(RegExp(r'[\d ]')),
+                LengthLimitingTextInputFormatter(19),
               ],
               decoration: InputDecoration(
                 labelText: 'رقم البطاقة'.tr,
@@ -514,10 +558,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
               },
             ),
             SizedBox(height: 16.h),
-            
+
             TextFormField(
               controller: nameCtrl,
               keyboardType: TextInputType.name,
+              textInputAction: TextInputAction.next,
+              autocorrect: false,
+              enableSuggestions: false,
               decoration: InputDecoration(
                 labelText: 'اسم صاحب البطاقة'.tr,
                 filled: true,
@@ -532,7 +579,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
               validator: (v) => (v ?? '').trim().isEmpty ? 'الرجاء إدخال الاسم'.tr : null,
             ),
             SizedBox(height: 16.h),
-            
+
             Row(
               children: [
                 Expanded(
@@ -540,12 +587,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   child: TextFormField(
                     controller: expiryCtrl,
                     keyboardType: TextInputType.number,
+                    onChanged: _onExpiryChanged,
+                    autocorrect: false,
+                    enableSuggestions: false,
                     inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(4)
+                      FilteringTextInputFormatter.allow(RegExp(r'[\d/]')),
+                      LengthLimitingTextInputFormatter(5),
                     ],
                     decoration: InputDecoration(
-                      labelText: 'انتهاء الصلاحية (MMYY)'.tr,
+                      labelText: 'انتهاء الصلاحية (MM/YY)'.tr,
                       filled: true,
                       fillColor: AppColors.card(isDark),
                       prefixIcon: Icon(Icons.calendar_today, color: AppColors.primary),
@@ -555,7 +605,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       ),
                       contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
                     ),
-                    validator: (v) => (v ?? '').length < 4 ? 'تاريخ غير صحيح'.tr : null,
+                    validator: (v) {
+                      final val = (v ?? '').trim();
+                      if (val.isEmpty) return 'الرجاء إدخال تاريخ الانتهاء'.tr;
+                      if (!_isValidExpiry(val)) return 'تاريخ غير صحيح'.tr;
+                      return null;
+                    },
                   ),
                 ),
                 SizedBox(width: 12.w),
@@ -564,9 +619,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   child: TextFormField(
                     controller: cvvCtrl,
                     keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.done,
                     inputFormatters: [
                       FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(4)
+                      LengthLimitingTextInputFormatter(4),
                     ],
                     decoration: InputDecoration(
                       labelText: 'CVV'.tr,
@@ -580,6 +636,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
                     ),
                     obscureText: true,
+                    obscuringCharacter: '•',
+                    autocorrect: false,
+                    enableSuggestions: false,
                     validator: (v) => (v ?? '').length < 3 ? 'CVV غير صحيح'.tr : null,
                   ),
                 ),
@@ -592,6 +651,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
+  // ✅ هنا الإصلاح الحقيقي: selectedItemBuilder = مختصر للحقل + عناصر كاملة بالقائمة
   Widget _buildWalletSection(bool isDark) {
     return Obx(() {
       if (walletController.isLoading.value) {
@@ -604,7 +664,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           ),
         );
       }
-      
+
       if (walletController.userWallets.isEmpty) {
         return Container(
           padding: EdgeInsets.all(20.h),
@@ -629,42 +689,93 @@ class _PaymentScreenState extends State<PaymentScreen> {
         );
       }
 
+      final wallets = walletController.userWallets;
+
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // تحسين القائمة المنسدلة مع مساحة أكبر
           Container(
-            constraints: BoxConstraints(
-              minHeight: 70.h,
-            ),
             decoration: BoxDecoration(
               color: AppColors.card(isDark),
               borderRadius: BorderRadius.circular(12.r),
               border: Border.all(color: Colors.grey.withOpacity(0.2)),
             ),
             child: DropdownButtonFormField<UserWallet>(
-              value: walletController.userWallets.contains(selectedWallet) ? selectedWallet : null,
+              value: wallets.contains(selectedWallet) ? selectedWallet : null,
               isExpanded: true,
-              icon: Icon(Icons.arrow_drop_down, size: 28.w),
-              iconSize: 32.w,
-              elevation: 4,
               dropdownColor: AppColors.card(isDark),
+              icon: Icon(Icons.keyboard_arrow_down_rounded, size: 26.w),
               style: TextStyle(
                 fontFamily: AppTextStyles.appFontFamily,
                 color: AppColors.textPrimary(isDark),
                 fontSize: 14.sp,
               ),
-              items: walletController.userWallets.map((wallet) {
-                final statusColor = _getWalletStatusColor(wallet.status ?? '');
-                final statusText = _getWalletStatusText(wallet.status ?? '');
-                final formattedUuid = _formatWalletUuid(wallet.uuid);
-                
+
+              // ✅ مختصر الحقل (يحِل مشكلة القصّ)
+              selectedItemBuilder: (context) {
+                return wallets.map((wallet) {
+                  final statusColor = _getWalletStatusColor((wallet.status ?? '').toString().toLowerCase());
+                  final statusText = _getWalletStatusText((wallet.status ?? '').toString().toLowerCase());
+
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _formatWalletUuid(wallet.uuid),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontFamily: AppTextStyles.appFontFamily,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14.sp,
+                            color: AppColors.textPrimary(isDark),
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 10.w),
+                      Text(
+                        fmt.format(wallet.balance ?? 0),
+                        style: TextStyle(
+                          fontFamily: AppTextStyles.appFontFamily,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13.sp,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      SizedBox(width: 8.w),
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 5.h),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(999.r),
+                          border: Border.all(color: statusColor.withOpacity(0.3)),
+                        ),
+                        child: Text(
+                          statusText,
+                          style: TextStyle(
+                            color: statusColor,
+                            fontFamily: AppTextStyles.appFontFamily,
+                            fontSize: 11.sp,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }).toList();
+              },
+
+              // ✅ عناصر القائمة (تفاصيل كاملة)
+              items: wallets.map((wallet) {
+                final stLower = (wallet.status ?? '').toString().toLowerCase();
+                final statusColor = _getWalletStatusColor(stLower);
+                final statusText = _getWalletStatusText(stLower);
+
                 return DropdownMenuItem<UserWallet>(
                   value: wallet,
-                  child: Container(
-                    padding: EdgeInsets.symmetric(vertical: 12.h),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 6.h),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Expanded(
                           child: Column(
@@ -672,11 +783,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                formattedUuid,
+                                _formatWalletUuid(wallet.uuid),
                                 style: TextStyle(
                                   fontFamily: AppTextStyles.appFontFamily,
                                   fontSize: 14.sp,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w800,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                                 maxLines: 1,
@@ -718,6 +829,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   ),
                 );
               }).toList(),
+
               onChanged: (wallet) {
                 if (wallet == null) {
                   setState(() => selectedWallet = null);
@@ -730,41 +842,51 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 }
                 setState(() => selectedWallet = wallet);
               },
+
               decoration: InputDecoration(
                 border: InputBorder.none,
+                isDense: true,
                 labelText: 'اختر المحفظة'.tr,
                 labelStyle: TextStyle(
                   fontFamily: AppTextStyles.appFontFamily,
                   fontSize: 14.sp,
                   color: AppColors.textSecondary(isDark),
                 ),
-                prefixIcon: Container(
-                  margin: EdgeInsets.only(right: 12.w),
+                prefixIcon: Padding(
+                  padding: EdgeInsetsDirectional.only(start: 12.w, end: 10.w),
                   child: Icon(Icons.account_balance_wallet, color: AppColors.primary),
                 ),
-                contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 18.h),
+                prefixIconConstraints: BoxConstraints(minWidth: 0, minHeight: 0),
+                contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 14.h),
                 floatingLabelBehavior: FloatingLabelBehavior.always,
               ),
             ),
           ),
+
           SizedBox(height: 20.h),
 
           if (selectedWallet != null)
             AnimatedContainer(
-              duration: Duration(milliseconds: 300),
+              duration: const Duration(milliseconds: 300),
               padding: EdgeInsets.all(18.w),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                    _hasSufficientBalance() ? Colors.green.shade50.withOpacity(0.6) : Colors.orange.shade50.withOpacity(0.6),
-                    _hasSufficientBalance() ? Colors.green.shade100.withOpacity(0.3) : Colors.orange.shade100.withOpacity(0.3),
+                    _hasSufficientBalance()
+                        ? Colors.green.shade50.withOpacity(0.6)
+                        : Colors.orange.shade50.withOpacity(0.6),
+                    _hasSufficientBalance()
+                        ? Colors.green.shade100.withOpacity(0.3)
+                        : Colors.orange.shade100.withOpacity(0.3),
                   ],
                 ),
                 borderRadius: BorderRadius.circular(12.r),
                 border: Border.all(
-                  color: _hasSufficientBalance() ? Colors.green.withOpacity(0.3) : Colors.orange.withOpacity(0.3),
+                  color: _hasSufficientBalance()
+                      ? Colors.green.withOpacity(0.3)
+                      : Colors.orange.withOpacity(0.3),
                 ),
               ),
               child: Column(
@@ -800,20 +922,23 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   SizedBox(height: 10.h),
                   Row(
                     children: [
-                      Text('الحالة: ', style: TextStyle(
-                        fontFamily: AppTextStyles.appFontFamily,
-                        fontSize: 14.sp,
-                      )),
+                      Text(
+                        'الحالة: ',
+                        style: TextStyle(
+                          fontFamily: AppTextStyles.appFontFamily,
+                          fontSize: 14.sp,
+                        ),
+                      ),
                       Container(
                         padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
                         decoration: BoxDecoration(
-                          color: _getWalletStatusColor(selectedWallet!.status ?? '').withOpacity(0.1),
+                          color: _getWalletStatusColor((selectedWallet!.status ?? '').toString().toLowerCase()).withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8.r),
                         ),
                         child: Text(
-                          _getWalletStatusText(selectedWallet!.status ?? ''),
+                          _getWalletStatusText((selectedWallet!.status ?? '').toString().toLowerCase()),
                           style: TextStyle(
-                            color: _getWalletStatusColor(selectedWallet!.status ?? ''),
+                            color: _getWalletStatusColor((selectedWallet!.status ?? '').toString().toLowerCase()),
                             fontWeight: FontWeight.bold,
                             fontFamily: AppTextStyles.appFontFamily,
                             fontSize: 12.sp,
@@ -822,7 +947,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       ),
                     ],
                   ),
-                  
                   if (!_hasSufficientBalance())
                     Container(
                       margin: EdgeInsets.only(top: 16.h),
@@ -860,31 +984,29 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   Widget _buildWalletDetailRow(String label, String value) {
     final isDark = themeController.isDarkMode.value;
-    return Container(
-      margin: EdgeInsets.only(bottom: 4.h),
-      child: Row(
-        children: [
-          Text(
-            '$label ',
+    return Row(
+      children: [
+        Text(
+          '$label ',
+          style: TextStyle(
+            fontFamily: AppTextStyles.appFontFamily,
+            color: AppColors.textSecondary(isDark),
+            fontSize: 14.sp,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
             style: TextStyle(
               fontFamily: AppTextStyles.appFontFamily,
-              color: AppColors.textSecondary(isDark),
+              fontWeight: FontWeight.w700,
               fontSize: 14.sp,
+              color: AppColors.textPrimary(isDark),
             ),
+            overflow: TextOverflow.ellipsis,
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                fontFamily: AppTextStyles.appFontFamily,
-                fontWeight: FontWeight.w600,
-                fontSize: 14.sp,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -893,7 +1015,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          width: 100.w,
+          width: 110.w,
           child: Text(
             label,
             style: TextStyle(
@@ -910,7 +1032,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             textAlign: TextAlign.end,
             style: TextStyle(
               fontFamily: AppTextStyles.appFontFamily,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w800,
               fontSize: 14.sp,
             ),
             maxLines: 3,
@@ -929,11 +1051,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
     required VoidCallback onTap,
   }) {
     final isDark = themeController.isDarkMode.value;
-    
+
     return Container(
       margin: EdgeInsets.all(8.w),
       decoration: BoxDecoration(
-        color: isSelected ? AppColors.primary.withOpacity(0.1) : Colors.transparent,
+        color: isSelected ? AppColors.primary.withOpacity(0.10) : Colors.transparent,
         borderRadius: BorderRadius.circular(12.r),
         border: Border.all(
           color: isSelected ? AppColors.primary : Colors.transparent,
@@ -949,7 +1071,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
           ),
           child: Icon(icon, color: isSelected ? Colors.white : AppColors.primary, size: 20.w),
         ),
-        title: Text(title, style: TextStyle(fontFamily: AppTextStyles.appFontFamily)),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontFamily: AppTextStyles.appFontFamily,
+            color: AppColors.textPrimary(isDark),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         trailing: Container(
           width: 24.w,
           height: 24.w,
@@ -961,9 +1090,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             ),
             color: isSelected ? AppColors.primary : Colors.transparent,
           ),
-          child: isSelected
-              ? Icon(Icons.check, size: 16.w, color: Colors.white)
-              : null,
+          child: isSelected ? Icon(Icons.check, size: 16.w, color: Colors.white) : null,
         ),
         onTap: onTap,
       ),
@@ -978,7 +1105,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         borderRadius: BorderRadius.circular(12.r),
       ),
       child: ListTile(
-        leading: Icon(Icons.credit_card_off, color: Colors.grey),
+        leading: const Icon(Icons.credit_card_off, color: Colors.grey),
         title: Text(
           'الدفع بالبطاقة غير متاح حالياً'.tr,
           style: TextStyle(
@@ -999,237 +1126,54 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isDark = themeController.isDarkMode.value;
-    final selectedPackages = _packageListFromWidget();
-    final totalPrice = _totalPriceOfSelected();
-    final priceText = _formatPrice(totalPrice);
-    final namesText = _namesOfSelected();
-    final typesText = _typesOfSelected();
-    final durationText = _durationText();
+  // ✅ زر سفلي “عائم” فعليًا: SafeArea + ظل + انيميشن + يطلع فوق الكيبورد
+  Widget _buildBottomPayBar({
+    required bool isDark,
+    required bool isPaymentEnabled,
+  }) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
-    final isPaymentEnabled = selectedPaymentMethod == 'card' || 
-                            (selectedPaymentMethod == 'wallet' && 
-                             selectedWallet != null && 
-                             _hasSufficientBalance());
-
-    return Scaffold(
-      backgroundColor: AppColors.background(isDark),
-      appBar: AppBar(
-        backgroundColor: AppColors.appBar(isDark),
-        elevation: 0,
-        centerTitle: true,
-        title: Text(
-          'إتمام الشراء'.tr,
-          style: TextStyle(
-            fontFamily: AppTextStyles.appFontFamily,
-            fontWeight: FontWeight.bold,
-            fontSize: 18.sp,
-          ),
+    return SafeArea(
+      top: false,
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(
+          left: 16.w,
+          right: 16.w,
+          bottom: 10.h + bottomInset,
+          top: 10.h,
         ),
-        leading: IconButton(
-          onPressed: () => Get.back(),
-          icon: Icon(Icons.arrow_back, color: AppColors.onPrimary),
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(
-            bottom: Radius.circular(20.r),
-          ),
-        ),
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              padding: EdgeInsets.all(16.w),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.all(20.w),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: isDark
-                            ? [Color(0xFF1e293b), Color(0xFF334155)]
-                            : [Colors.white, Colors.grey.shade50],
-                      ),
-                      borderRadius: BorderRadius.circular(20.r),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 15,
-                          offset: Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Center(
-                          child: Text(
-                            'ملخص طلبك'.tr,
-                            style: TextStyle(
-                              fontFamily: AppTextStyles.appFontFamily,
-                              fontSize: 18.sp,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ),
-                        SizedBox(height: 16.h),
-                        Divider(color: Colors.grey.withOpacity(0.3)),
-                        SizedBox(height: 16.h),
-                        
-                        _buildSummaryRow('الباقات المختارة:', namesText),
-                        SizedBox(height: 12.h),
-                        _buildSummaryRow('النوع:', typesText),
-                        SizedBox(height: 12.h),
-                        _buildSummaryRow('المدة:', durationText),
-                        SizedBox(height: 12.h),
-                        _buildSummaryRow('عنوان الإعلان:', widget.adTitle),
-                        
-                        SizedBox(height: 16.h),
-                        Divider(color: Colors.grey.withOpacity(0.3)),
-                        SizedBox(height: 16.h),
-                        
-                        Container(
-                          padding: EdgeInsets.all(16.w),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12.r),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'الإجمالي:'.tr,
-                                style: TextStyle(
-                                  fontFamily: AppTextStyles.appFontFamily,
-                                  fontSize: 16.sp,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                              Text(
-                                priceText,
-                                style: TextStyle(
-                                  fontFamily: AppTextStyles.appFontFamily,
-                                  fontSize: 20.sp,
-                                  fontWeight: FontWeight.w900,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  SizedBox(height: 24.h),
-                  
-                  Text(
-                    'اختر طريقة الدفع'.tr,
-                    style: TextStyle(
-                      fontSize: 16.sp,
-                      fontWeight: FontWeight.w700,
-                      fontFamily: AppTextStyles.appFontFamily,
-                    ),
-                  ),
-                  SizedBox(height: 16.h),
-
-                  Obx(() {
-                    final isCardEnabled = _cardPaymentController.isEnabled.value;
-                    
-                    return Container(
-                      decoration: BoxDecoration(
-                        color: AppColors.card(isDark),
-                        borderRadius: BorderRadius.circular(16.r),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 8,
-                            offset: Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          if (isCardEnabled)
-                            _buildPaymentMethodTile(
-                              icon: Icons.credit_card,
-                              title: 'بطاقة ائتمان'.tr,
-                              value: 'card',
-                              isSelected: selectedPaymentMethod == 'card',
-                              onTap: () => setState(() => selectedPaymentMethod = 'card'),
-                            ),
-                          
-                          _buildPaymentMethodTile(
-                            icon: Icons.account_balance_wallet,
-                            title: 'المحفظة الإلكترونية'.tr,
-                            value: 'wallet',
-                            isSelected: selectedPaymentMethod == 'wallet',
-                            onTap: () => setState(() => selectedPaymentMethod = 'wallet'),
-                          ),
-
-                          if (!isCardEnabled)
-                            _buildDisabledPaymentTile(),
-                        ],
-                      ),
-                    );
-                  }),
-
-                  SizedBox(height: 24.h),
-
-                  AnimatedSwitcher(
-                    duration: Duration(milliseconds: 300),
-                    child: selectedPaymentMethod == 'card'
-                        ? _buildCreditCardSection(isDark)
-                        : _buildWalletSection(isDark),
-                  ),
-
-                  // مساحة إضافية في الأسفل لمنع التدفق
-                  SizedBox(height: 120.h),
-                ],
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.card(isDark),
+            borderRadius: BorderRadius.circular(16.r),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.10),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
               ),
-            ),
+            ],
+            border: Border.all(color: Colors.grey.withOpacity(0.12)),
           ),
-
-          // زر الدفع الثابت في الأسفل
-          Container(
-            width: double.infinity,
-            padding: EdgeInsets.all(16.w),
-            decoration: BoxDecoration(
-              color: AppColors.background(isDark),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: Offset(0, -2),
-                ),
-              ],
-            ),
+          padding: EdgeInsets.all(12.w),
+          child: SizedBox(
+            height: 52.h,
             child: ElevatedButton(
               onPressed: isProcessing || !isPaymentEnabled ? null : _processPayment,
               style: ElevatedButton.styleFrom(
                 backgroundColor: isPaymentEnabled ? AppColors.primary : Colors.grey,
-                padding: EdgeInsets.symmetric(vertical: 16.h),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12.r),
                 ),
-                elevation: 4,
-                shadowColor: (isPaymentEnabled ? AppColors.primary : Colors.grey).withOpacity(0.3),
+                elevation: 0,
               ),
               child: isProcessing
                   ? SizedBox(
-                      height: 24.h,
-                      width: 24.h,
-                      child: CircularProgressIndicator(
+                      height: 22.h,
+                      width: 22.h,
+                      child: const CircularProgressIndicator(
                         color: Colors.white,
                         strokeWidth: 2,
                       ),
@@ -1256,8 +1200,212 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     ),
             ),
           ),
-        ],
+        ),
       ),
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = themeController.isDarkMode.value;
+
+    final totalPrice = _totalPriceOfSelected();
+    final priceText = _formatPrice(totalPrice);
+    final namesText = _namesOfSelected();
+    final typesText = _typesOfSelected();
+    final durationText = _durationText();
+
+    final isPaymentEnabled = selectedPaymentMethod == 'card' ||
+        (selectedPaymentMethod == 'wallet' && selectedWallet != null && _hasSufficientBalance());
+
+    // ✅ عشان محتوى الصفحة ما ينطمر خلف شريط الدفع
+    final bottomSpace = (110.h) + MediaQuery.of(context).padding.bottom;
+
+    return Scaffold(
+      backgroundColor: AppColors.background(isDark),
+      appBar: AppBar(
+        backgroundColor: AppColors.appBar(isDark),
+        elevation: 0,
+        centerTitle: true,
+        title: Text(
+          'إتمام الشراء'.tr,
+          style: TextStyle(
+            fontFamily: AppTextStyles.appFontFamily,
+            fontWeight: FontWeight.bold,
+            fontSize: 18.sp,
+          ),
+        ),
+        leading: IconButton(
+          onPressed: () => Get.back(),
+          icon: Icon(Icons.arrow_back, color: AppColors.onPrimary),
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            bottom: Radius.circular(20.r),
+          ),
+        ),
+      ),
+
+      // ✅ هذا هو مكان زر الدفع الصحيح (بدون ما يدخل تحت أزرار النظام)
+      bottomNavigationBar: _buildBottomPayBar(
+        isDark: isDark,
+        isPaymentEnabled: isPaymentEnabled,
+      ),
+
+      body: SingleChildScrollView(
+        controller: _scrollController,
+        padding: EdgeInsets.fromLTRB(16.w, 16.w, 16.w, bottomSpace),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(20.w),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: isDark ? [const Color(0xFF1e293b), const Color(0xFF334155)] : [Colors.white, Colors.grey.shade50],
+                ),
+                borderRadius: BorderRadius.circular(20.r),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 15,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Text(
+                      'ملخص طلبك'.tr,
+                      style: TextStyle(
+                        fontFamily: AppTextStyles.appFontFamily,
+                        fontSize: 18.sp,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 16.h),
+                  Divider(color: Colors.grey.withOpacity(0.3)),
+                  SizedBox(height: 16.h),
+                  _buildSummaryRow('الباقات المختارة:', namesText),
+                  SizedBox(height: 12.h),
+                  _buildSummaryRow('النوع:', typesText),
+                  SizedBox(height: 12.h),
+                  _buildSummaryRow('المدة:', durationText),
+                  SizedBox(height: 12.h),
+                  _buildSummaryRow('عنوان الإعلان:', widget.adTitle),
+                  SizedBox(height: 16.h),
+                  Divider(color: Colors.grey.withOpacity(0.3)),
+                  SizedBox(height: 16.h),
+                  Container(
+                    padding: EdgeInsets.all(16.w),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12.r),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'الإجمالي:'.tr,
+                          style: TextStyle(
+                            fontFamily: AppTextStyles.appFontFamily,
+                            fontSize: 16.sp,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        Text(
+                          priceText,
+                          style: TextStyle(
+                            fontFamily: AppTextStyles.appFontFamily,
+                            fontSize: 20.sp,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 24.h),
+            Text(
+              'اختر طريقة الدفع'.tr,
+              style: TextStyle(
+                fontSize: 16.sp,
+                fontWeight: FontWeight.w700,
+                fontFamily: AppTextStyles.appFontFamily,
+              ),
+            ),
+            SizedBox(height: 16.h),
+
+            Obx(() {
+              final isCardEnabled = _cardPaymentController.isEnabled.value;
+
+              return Container(
+                decoration: BoxDecoration(
+                  color: AppColors.card(isDark),
+                  borderRadius: BorderRadius.circular(16.r),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    if (isCardEnabled)
+                      _buildPaymentMethodTile(
+                        icon: Icons.credit_card,
+                        title: 'بطاقة ائتمان'.tr,
+                        value: 'card',
+                        isSelected: selectedPaymentMethod == 'card',
+                        onTap: () => setState(() => selectedPaymentMethod = 'card'),
+                      ),
+                    _buildPaymentMethodTile(
+                      icon: Icons.account_balance_wallet,
+                      title: 'المحفظة الإلكترونية'.tr,
+                      value: 'wallet',
+                      isSelected: selectedPaymentMethod == 'wallet',
+                      onTap: () => setState(() => selectedPaymentMethod = 'wallet'),
+                    ),
+                    if (!isCardEnabled) _buildDisabledPaymentTile(),
+                  ],
+                ),
+              );
+            }),
+
+            SizedBox(height: 24.h),
+
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: selectedPaymentMethod == 'card'
+                  ? _buildCreditCardSection(isDark)
+                  : _buildWalletSection(isDark),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    cardNumberCtrl.dispose();
+    nameCtrl.dispose();
+    expiryCtrl.dispose();
+    cvvCtrl.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 }

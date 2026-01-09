@@ -7,7 +7,7 @@ import 'package:get/get.dart';
 import 'package:tappuu_app/core/constant/appcolors.dart';
 import 'package:tappuu_app/core/constant/app_text_styles.dart';
 
-import '../../controllers/AdsManageSearchController.dart';
+import '../../controllers/AdsManageSearchController.dart'; // AdsController
 import '../../controllers/ThemeController.dart';
 import '../../controllers/areaController.dart';
 import '../../core/data/model/Area.dart';
@@ -20,7 +20,7 @@ import '../../core/localization/changelanguage.dart';
 enum PriceMode { range, minOnly }
 
 class FilterScreen extends StatefulWidget {
-  final int? categoryId;
+  final int? categoryId; // لو جاي من صفحة تصنيف محدد (ثابت)
   final String? currentTimeframe;
   final bool onlyFeatured;
 
@@ -45,11 +45,26 @@ class _FilterScreenState extends State<FilterScreen> {
 
   bool _isApplying = false;
   bool _isResetting = false;
+
+  bool _didApply = false; // ✅ حتى ما نرجّع القيم بعد تطبيق الفلتر
+
   String? _selectedTimePeriod;
+
+  /// ✅ attributeId -> value
+  /// - options: List<int> (حتى لو single)
+  /// - boolean: bool
+  /// - text: String
+  /// - number: String
   final Map<int, dynamic> _attributeValues = {};
 
+  // Snapshot للرجوع عند الإلغاء
   TheCity? _tempCity;
   Area? _tempArea;
+  late int _tempCategoryId;
+  late List<Map<String, dynamic>> _tempAttributesPayload;
+  late List<CategoryAttribute> _tempAttributesList;
+  int? _tempAttributesCategoryId;
+  String? _tempTimeframe;
 
   int? _chosenCategoryId;
 
@@ -64,32 +79,190 @@ class _FilterScreenState extends State<FilterScreen> {
   @override
   void initState() {
     super.initState();
+
+    // ✅ Snapshots
     _tempCity = _ads.selectedCity.value;
     _tempArea = _ads.selectedArea.value;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final lang = Get.find<ChangeLanguageController>().currentLocale.value.languageCode;
+    _tempCategoryId = _ads.currentCategoryId.value;
+    _tempAttributesPayload = _ads.currentAttributes
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList();
 
+    _tempAttributesList = _ads.attributesList.toList();
+    _tempAttributesCategoryId = _ads.attributesCategoryId.value;
+
+    _tempTimeframe = _ads.currentTimeframe.value;
+
+    // timeframe initial
+    _selectedTimePeriod = widget.currentTimeframe ?? _ads.currentTimeframe.value;
+
+    // ✅ category initial:
+    // 1) لو الشاشة مربوطة بتصنيف ثابت (widget.categoryId) خذه
+    // 2) غير كذا خذ آخر تصنيف مستخدم من الكنترولر (عشان ما يختفي)
+    final fixed = (widget.categoryId != null && (widget.categoryId ?? 0) > 0)
+        ? widget.categoryId
+        : null;
+    if (fixed != null) {
+      _chosenCategoryId = fixed;
+    } else {
+      final fromController = _ads.currentCategoryId.value;
+      _chosenCategoryId = (fromController > 0) ? fromController : null;
+    }
+
+    // hydrate فقط إذا عندنا تصنيف فعلي
+    if (_effectiveCategoryId != null) {
+      _hydrateFromController();
+    } else {
+      _attributeValues.clear();
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final lang = Get.find<ChangeLanguageController>()
+          .currentLocale
+          .value
+          .languageCode;
+
+      // ✅ لو التصنيف غير ثابت: نحتاج قائمة التصنيفات دائمًا
       if (widget.categoryId == null || (widget.categoryId ?? 0) <= 0) {
-        _chosenCategoryId = null;
         await _ads.fetchCategories(lang);
+      }
+
+      // ✅ لو عندنا تصنيف فعلي: حمّل خصائصه
+      final eff = _effectiveCategoryId;
+      if (eff != null) {
+        await _ads.fetchAttributes(categoryId: eff, lang: lang);
+        _pruneAttributeValuesToLoadedAttributes();
       } else {
-        _chosenCategoryId = widget.categoryId;
-        await _ads.fetchAttributes(categoryId: _chosenCategoryId!, lang: lang);
+        // ✅ مهم: إذا ما في تصنيف، لا تخلّي خصائص قديمة ظاهرة
+        _ads.resetAttributesState();
       }
 
       await _ads.fetchCities('SY', lang);
+
+      if (mounted) setState(() {});
     });
   }
 
   @override
   void dispose() {
-    _ads.selectedCity.value = _tempCity;
-    _ads.selectedArea.value = _tempArea;
+    // ✅ إذا المستخدم خرج بدون تطبيق: رجّع كل شيء كما كان
+    if (!_didApply) {
+      _ads.selectedCity.value = _tempCity;
+      _ads.selectedArea.value = _tempArea;
+
+      _ads.currentCategoryId.value = _tempCategoryId;
+      _ads.currentAttributes.assignAll(
+        _tempAttributesPayload.map((m) => Map<String, dynamic>.from(m)).toList(),
+      );
+
+      _ads.attributesList.assignAll(_tempAttributesList);
+      _ads.attributesCategoryId.value = _tempAttributesCategoryId;
+
+      _ads.currentTimeframe.value = _tempTimeframe;
+    }
+
     _priceMinCtrl.dispose();
     _priceMaxCtrl.dispose();
     super.dispose();
   }
+
+  // ==================== Helpers ====================
+
+  int? get _effectiveCategoryId => (_chosenCategoryId ?? widget.categoryId);
+
+  void _hydrateFromController() {
+    try {
+      final list = _ads.currentAttributes.toList();
+      for (final item in list) {
+        final id = item['attribute_id'];
+        final type = '${item['attribute_type'] ?? ''}';
+        final value = item['value'];
+
+        final int? aid = (id is int) ? id : int.tryParse('$id');
+        if (aid == null || aid <= 0) continue;
+
+        if (type == 'options') {
+          final ids = <int>[];
+          if (value is List) {
+            for (final v in value) {
+              if (v is int && v > 0) ids.add(v);
+              if (v is String) {
+                final p = int.tryParse(v);
+                if (p != null && p > 0) ids.add(p);
+              }
+            }
+          } else if (value is int && value > 0) {
+            ids.add(value);
+          } else if (value is String) {
+            final p = int.tryParse(value);
+            if (p != null && p > 0) ids.add(p);
+          }
+          final cleaned = ids.toSet().toList()..sort();
+          if (cleaned.isNotEmpty) _attributeValues[aid] = cleaned;
+          continue;
+        }
+
+        if (type == 'boolean') {
+          if (value is bool) {
+            _attributeValues[aid] = value;
+          } else {
+            final s = '${value ?? ''}'.toLowerCase().trim();
+            if (s.isNotEmpty) {
+              _attributeValues[aid] = (s == 'true' || s == '1' || s == 'yes' || s == 'نعم');
+            }
+          }
+          continue;
+        }
+
+        if (type == 'text') {
+          final s = '${value ?? ''}'.trim();
+          if (s.isNotEmpty) _attributeValues[aid] = s;
+          continue;
+        }
+
+        if (type == 'number') {
+          final s = '${value ?? ''}'.trim();
+          if (s.isNotEmpty) _attributeValues[aid] = s;
+          continue;
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _pruneAttributeValuesToLoadedAttributes() {
+    final ids = _ads.attributesList.map((a) => a.attributeId).toSet();
+    _attributeValues.removeWhere((k, v) => !ids.contains(k));
+
+    // ✅ لو كان عندنا قيم قديمة لتصنيف ثاني: امسحها فعليًا من UI
+    _remountKey = UniqueKey();
+  }
+
+  Future<void> _onMainCategoryChanged(int? val) async {
+    final lang = Get.find<ChangeLanguageController>()
+        .currentLocale
+        .value
+        .languageCode;
+
+    setState(() {
+      _chosenCategoryId = val;
+      _attributeValues.clear();
+      _remountKey = UniqueKey();
+    });
+
+    // ✅ نظّف حالة الكنترولر الخاصة بالخصائص + payload (عشان ما يبقى أثر لتصنيف قديم)
+    _ads.currentCategoryId.value = val ?? 0;
+    _ads.currentAttributes.clear();
+    _ads.resetAttributesState();
+
+    if (val != null && val > 0) {
+      await _ads.fetchAttributes(categoryId: val, lang: lang);
+      _pruneAttributeValuesToLoadedAttributes();
+      if (mounted) setState(() {});
+    }
+  }
+
+  // ==================== UI ====================
 
   @override
   Widget build(BuildContext context) {
@@ -110,11 +283,7 @@ class _FilterScreenState extends State<FilterScreen> {
         actions: [
           IconButton(
             icon: Icon(Icons.close, color: AppColors.onPrimary),
-            onPressed: () {
-              _ads.selectedCity.value = _tempCity;
-              _ads.selectedArea.value = _tempArea;
-              Get.back();
-            },
+            onPressed: () => Get.back(), // ✅ dispose بيرجع القيم إذا ما تم تطبيق
           ),
         ],
       ),
@@ -172,7 +341,7 @@ class _FilterScreenState extends State<FilterScreen> {
                         ? SizedBox(
                             width: 20.w,
                             height: 20.h,
-                            child: CircularProgressIndicator(
+                            child: const CircularProgressIndicator(
                               strokeWidth: 2,
                               valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                             ),
@@ -202,30 +371,22 @@ class _FilterScreenState extends State<FilterScreen> {
           child: KeyedSubtree(
             key: _remountKey,
             child: SingleChildScrollView(
-              padding: EdgeInsets.only(left: 16.w, right: 16.w, top: 8.h, bottom: 120.h), // تم تقليل المسافات
+              padding: EdgeInsets.only(left: 16.w, right: 16.w, top: 8.h, bottom: 120.h),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (widget.categoryId == null || (widget.categoryId ?? 0) <= 0)
                     _buildMainCategoryPicker(loadingCats),
 
-                  if (loadingAttrs) _buildSectionTitle('الخصائص'.tr),
-                  if (loadingAttrs)
-                    Center(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12.h), // تم تقليل المسافة
-                        child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
-                      ),
-                    )
-                  else
-                    _buildAttributesSection(),
+                  _buildAttributesBlock(loadingAttrs),
 
-                  SizedBox(height: 8.h), // تم تقليل المسافة
+                  SizedBox(height: 8.h),
                   _buildPriceSection(),
 
-                  SizedBox(height: 8.h), // تم تقليل المسافة
+                  SizedBox(height: 8.h),
                   _buildCityAreaSection(),
-                  SizedBox(height: 8.h), // تم تقليل المسافة
+
+                  SizedBox(height: 8.h),
                   _buildTimePeriodSection(),
                 ],
               ),
@@ -234,6 +395,47 @@ class _FilterScreenState extends State<FilterScreen> {
         );
       }),
     );
+  }
+
+  Widget _buildAttributesBlock(bool loadingAttrs) {
+    final eff = _effectiveCategoryId;
+    if (eff == null) {
+      return _noteCard('اختر التصنيف الرئيسي أولًا لعرض الخصائص المتاحة للفلترة.'.tr);
+    }
+
+    // ✅ لا تعرض خصائص “قديمة” لو ما تطابق التصنيف الحالي
+    final attrsFor = _ads.attributesCategoryId.value;
+    if (attrsFor != eff) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionTitle('الخصائص'.tr),
+          Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 12.h),
+              child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (loadingAttrs) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionTitle('الخصائص'.tr),
+          Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 12.h),
+              child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return _buildAttributesSection();
   }
 
   // ================= UI Blocks =================
@@ -275,10 +477,16 @@ class _FilterScreenState extends State<FilterScreen> {
               : DropdownButtonHideUnderline(
                   child: Obx(() {
                     final List<cat.Category> cats = _ads.categoriesList.toList();
+
+                    // ✅ مهم: value لازم يكون موجود داخل items وإلا Dropdown ينهار
+                    final bool exists = _chosenCategoryId != null &&
+                        cats.any((c) => c.id == _chosenCategoryId);
+                    final safeValue = exists ? _chosenCategoryId : null;
+
                     return SizedBox(
                       height: 56,
                       child: DropdownButton<int>(
-                        value: _chosenCategoryId,
+                        value: safeValue,
                         isExpanded: true,
                         hint: Text(
                           'اختر تصنيفًا لعرض خصائصه'.tr,
@@ -304,30 +512,20 @@ class _FilterScreenState extends State<FilterScreen> {
                               ),
                             )
                             .toList(),
-                        onChanged: (val) async {
-                          setState(() {
-                            _chosenCategoryId = val;
-                            _attributeValues.clear();
-                          });
-                          if (val != null) {
-                            _ads.currentCategoryId.value = val;
-                            final lang = Get.find<ChangeLanguageController>().currentLocale.value.languageCode;
-                            await _ads.fetchAttributes(categoryId: val, lang: lang);
-                          }
-                        },
+                        onChanged: (val) => _onMainCategoryChanged(val),
                       ),
                     );
                   }),
                 ),
         ),
-        SizedBox(height: 12.h), // تم تقليل المسافة
+        SizedBox(height: 12.h),
       ],
     );
   }
 
   Widget _buildSectionTitle(String title) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 6.h, top: 4.h), // تم تقليل المسافة
+      padding: EdgeInsets.only(bottom: 6.h, top: 4.h),
       child: Text(
         title,
         style: TextStyle(
@@ -341,7 +539,8 @@ class _FilterScreenState extends State<FilterScreen> {
   }
 
   Widget _buildAttributesSection() {
-    if (_effectiveCategoryId == null) {
+    final eff = _effectiveCategoryId;
+    if (eff == null) {
       return _noteCard('اختر التصنيف الرئيسي أولًا لعرض الخصائص المتاحة للفلترة.'.tr);
     }
 
@@ -356,19 +555,43 @@ class _FilterScreenState extends State<FilterScreen> {
       children: [
         for (final attribute in attrs) ...[
           Padding(
-            padding: EdgeInsets.only(bottom: 4.h, top: 6.h), // تم تقليل المسافة
-            child: Text(
-              attribute.label,
-              style: TextStyle(
-                fontFamily: AppTextStyles.appFontFamily,
-                fontSize: AppTextStyles.medium,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary(isDark),
-              ),
+            padding: EdgeInsets.only(bottom: 4.h, top: 6.h),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    attribute.label,
+                    style: TextStyle(
+                      fontFamily: AppTextStyles.appFontFamily,
+                      fontSize: AppTextStyles.medium,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary(isDark),
+                    ),
+                  ),
+                ),
+                if (attribute.type == 'options' && attribute.isMultiSelect)
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface(isDark),
+                      borderRadius: BorderRadius.circular(20.r),
+                      border: Border.all(color: AppColors.border(isDark), width: 0.6),
+                    ),
+                    child: Text(
+                      'متعدد'.tr,
+                      style: TextStyle(
+                        fontFamily: AppTextStyles.appFontFamily,
+                        fontSize: AppTextStyles.small,
+                        color: AppColors.textSecondary(isDark),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           _buildAttributeInput(attribute),
-          SizedBox(height: 8.h), // تم تقليل المسافة بدلاً من الديفايدر الكبير
+          SizedBox(height: 8.h),
         ],
       ],
     );
@@ -377,7 +600,7 @@ class _FilterScreenState extends State<FilterScreen> {
   Widget _noteCard(String msg) {
     return Container(
       padding: EdgeInsets.all(12.r),
-      margin: EdgeInsets.only(bottom: 8.h), // تم تقليل المسافة
+      margin: EdgeInsets.only(bottom: 8.h),
       decoration: BoxDecoration(
         color: AppColors.card(isDark),
         borderRadius: BorderRadius.circular(10.r),
@@ -394,14 +617,12 @@ class _FilterScreenState extends State<FilterScreen> {
     );
   }
 
-  // ===== السعر UI (مبسّط) =====
+  // ===== السعر UI =====
   Widget _buildPriceSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionTitle('السعر'.tr),
-
-        // اختيار النمط: نطاق / أعلى من
         Wrap(
           spacing: 8.w,
           children: [
@@ -422,10 +643,7 @@ class _FilterScreenState extends State<FilterScreen> {
             ),
           ],
         ),
-
-        SizedBox(height: 8.h), // تم تقليل المسافة
-
-        // حقول الإدخال
+        SizedBox(height: 8.h),
         Row(
           children: [
             Expanded(
@@ -433,7 +651,7 @@ class _FilterScreenState extends State<FilterScreen> {
                 controller: _priceMinCtrl,
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9٠-٩,،]'))],
-                onChanged: (v) => _formatControllerText(_priceMinCtrl),
+                onChanged: (_) => _formatControllerText(_priceMinCtrl),
                 decoration: _inputDecoration(hint: 'السعر من'.tr).copyWith(
                   prefixIcon: const Icon(Icons.arrow_upward, size: 18),
                 ),
@@ -446,7 +664,7 @@ class _FilterScreenState extends State<FilterScreen> {
                 enabled: _priceMode == PriceMode.range,
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9٠-٩,،]'))],
-                onChanged: (v) => _formatControllerText(_priceMaxCtrl),
+                onChanged: (_) => _formatControllerText(_priceMaxCtrl),
                 decoration: _inputDecoration(hint: 'السعر إلى'.tr).copyWith(
                   prefixIcon: const Icon(Icons.arrow_downward, size: 18),
                   suffixIcon: _priceMode == PriceMode.minOnly
@@ -455,21 +673,15 @@ class _FilterScreenState extends State<FilterScreen> {
                           ? null
                           : IconButton(
                               icon: const Icon(Icons.clear, size: 18),
-                              onPressed: () {
-                                setState(() {
-                                  _priceMaxCtrl.clear();
-                                });
-                              },
+                              onPressed: () => setState(() => _priceMaxCtrl.clear()),
                             )),
                 ),
               ),
             ),
           ],
         ),
-
-        // ملخص بسيط
         Padding(
-          padding: EdgeInsets.only(top: 4.h), // تم تقليل المسافة
+          padding: EdgeInsets.only(top: 4.h),
           child: Row(
             children: [
               Icon(Icons.info_outline, size: 16, color: AppColors.textSecondary(isDark)),
@@ -522,7 +734,7 @@ class _FilterScreenState extends State<FilterScreen> {
     );
   }
 
-  // ===== المدخلات حسب نوع الخاصية =====
+  // ===== Inputs حسب النوع =====
   Widget _buildAttributeInput(CategoryAttribute attribute) {
     switch (attribute.type) {
       case 'options':
@@ -538,9 +750,19 @@ class _FilterScreenState extends State<FilterScreen> {
     }
   }
 
+  // ✅ options: single / multi
   Widget _buildOptionsAttribute(CategoryAttribute attribute) {
+    if (attribute.isMultiSelect) return _buildMultiOptionsAttribute(attribute);
+    return _buildSingleOptionsAttribute(attribute);
+  }
+
+  /// ✅ Single: نخزن List<int> لكن Dropdown يحتاج int
+  Widget _buildSingleOptionsAttribute(CategoryAttribute attribute) {
+    final selectedIds = _getSelectedIds(attribute);
+    final selectedOne = selectedIds.isEmpty ? null : selectedIds.first;
+
     return DropdownButtonFormField<int>(
-      value: _attributeValues[attribute.attributeId] as int?,
+      value: selectedOne,
       isExpanded: true,
       menuMaxHeight: MediaQuery.of(context).size.height * 0.5,
       decoration: _inputDecoration(),
@@ -560,7 +782,15 @@ class _FilterScreenState extends State<FilterScreen> {
             ),
           )
           .toList(),
-      onChanged: (v) => setState(() => _attributeValues[attribute.attributeId] = v),
+      onChanged: (v) {
+        setState(() {
+          if (v == null) {
+            _attributeValues.remove(attribute.attributeId);
+          } else {
+            _attributeValues[attribute.attributeId] = <int>[v];
+          }
+        });
+      },
       hint: Text(
         '${'اختر'.tr} ${attribute.label}',
         style: TextStyle(
@@ -571,6 +801,373 @@ class _FilterScreenState extends State<FilterScreen> {
       ),
       dropdownColor: AppColors.card(isDark),
     );
+  }
+
+  Widget _buildMultiOptionsAttribute(CategoryAttribute attribute) {
+    final selectedIds = _getSelectedIds(attribute);
+    final selectedOptions = attribute.options.where((o) => selectedIds.contains(o.id)).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: () => _openMultiSelectSheet(attribute),
+          borderRadius: BorderRadius.circular(8.r),
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 12.h),
+            decoration: BoxDecoration(
+              color: AppColors.surface(isDark),
+              borderRadius: BorderRadius.circular(8.r),
+              border: Border.all(color: AppColors.border(isDark), width: 0.5),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    selectedIds.isEmpty
+                        ? ('${'اختر'.tr} ${attribute.label}')
+                        : ('${'تم اختيار'.tr} ${selectedIds.length}'),
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: AppTextStyles.appFontFamily,
+                      fontSize: AppTextStyles.medium,
+                      color: selectedIds.isEmpty
+                          ? AppColors.textSecondary(isDark)
+                          : AppColors.textPrimary(isDark),
+                      fontWeight: selectedIds.isEmpty ? FontWeight.w500 : FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Icon(Icons.keyboard_arrow_down, color: AppColors.textSecondary(isDark)),
+              ],
+            ),
+          ),
+        ),
+
+        Padding(
+          padding: EdgeInsets.only(top: 6.h),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, size: 16, color: AppColors.textSecondary(isDark)),
+              SizedBox(width: 6.w),
+              Expanded(
+                child: Text(
+                  'يمكنك اختيار أكثر من خيار.'.tr,
+                  style: TextStyle(
+                    fontFamily: AppTextStyles.appFontFamily,
+                    fontSize: AppTextStyles.small,
+                    color: AppColors.textSecondary(isDark),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        if (selectedOptions.isNotEmpty) ...[
+          SizedBox(height: 8.h),
+          Wrap(
+            spacing: 8.w,
+            runSpacing: 8.h,
+            children: selectedOptions.map((o) {
+              return _selectedChip(
+                text: o.value,
+                onRemove: () {
+                  final newIds = List<int>.from(selectedIds)..remove(o.id);
+                  setState(() {
+                    if (newIds.isEmpty) {
+                      _attributeValues.remove(attribute.attributeId);
+                    } else {
+                      _attributeValues[attribute.attributeId] = newIds;
+                    }
+                  });
+                },
+              );
+            }).toList(),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _selectedChip({required String text, required VoidCallback onRemove}) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+      decoration: BoxDecoration(
+        color: AppColors.card(isDark),
+        borderRadius: BorderRadius.circular(30.r),
+        border: Border.all(color: AppColors.border(isDark), width: 0.6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              text,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: AppTextStyles.appFontFamily,
+                fontSize: AppTextStyles.small,
+                color: AppColors.textPrimary(isDark),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          SizedBox(width: 6.w),
+          GestureDetector(
+            onTap: onRemove,
+            child: Icon(Icons.close, size: 16, color: AppColors.textSecondary(isDark)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openMultiSelectSheet(CategoryAttribute attribute) async {
+    final initial = Set<int>.from(_getSelectedIds(attribute));
+    final all = attribute.options;
+
+    final res = await showModalBottomSheet<Set<int>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        String query = '';
+        final temp = Set<int>.from(initial);
+
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final filtered = query.trim().isEmpty
+                ? all
+                : all.where((o) => o.value.toLowerCase().contains(query.toLowerCase())).toList();
+
+            return Container(
+              decoration: BoxDecoration(
+                color: AppColors.card(isDark),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(18.r)),
+                border: Border.all(color: AppColors.divider(isDark)),
+              ),
+              padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              attribute.label,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: AppTextStyles.appFontFamily,
+                                fontSize: AppTextStyles.large,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary(isDark),
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface(isDark),
+                              borderRadius: BorderRadius.circular(20.r),
+                              border: Border.all(color: AppColors.border(isDark), width: 0.6),
+                            ),
+                            child: Text(
+                              '${temp.length}',
+                              style: TextStyle(
+                                fontFamily: AppTextStyles.appFontFamily,
+                                fontSize: AppTextStyles.small,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textSecondary(isDark),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 8.w),
+                          IconButton(
+                            onPressed: () => Navigator.pop(ctx, null),
+                            icon: Icon(Icons.close, color: AppColors.textSecondary(isDark)),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 14.w),
+                      child: TextField(
+                        onChanged: (v) => setSheetState(() => query = v),
+                        decoration: InputDecoration(
+                          hintText: 'ابحث...'.tr,
+                          filled: true,
+                          fillColor: AppColors.surface(isDark),
+                          prefixIcon: const Icon(Icons.search, size: 18),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 12.h),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10.r),
+                            borderSide: BorderSide(color: AppColors.border(isDark), width: 0.6),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10.r),
+                            borderSide: BorderSide(color: AppColors.border(isDark), width: 0.6),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: 10.h),
+
+                    Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 6.h),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => Divider(color: AppColors.divider(isDark), height: 1),
+                        itemBuilder: (_, i) {
+                          final o = filtered[i];
+                          final checked = temp.contains(o.id);
+
+                          return InkWell(
+                            onTap: () {
+                              setSheetState(() {
+                                if (checked) {
+                                  temp.remove(o.id);
+                                } else {
+                                  temp.add(o.id);
+                                }
+                              });
+                            },
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 10.h),
+                              child: Row(
+                                children: [
+                                  Checkbox(
+                                    value: checked,
+                                    onChanged: (_) {
+                                      setSheetState(() {
+                                        if (checked) {
+                                          temp.remove(o.id);
+                                        } else {
+                                          temp.add(o.id);
+                                        }
+                                      });
+                                    },
+                                    activeColor: AppColors.primary,
+                                  ),
+                                  SizedBox(width: 6.w),
+                                  Expanded(
+                                    child: Text(
+                                      o.value,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontFamily: AppTextStyles.appFontFamily,
+                                        fontSize: AppTextStyles.medium,
+                                        color: AppColors.textPrimary(isDark),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextButton(
+                              onPressed: () => setSheetState(() => temp.clear()),
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.symmetric(vertical: 12.h),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10.r),
+                                  side: BorderSide(color: AppColors.primary, width: 1),
+                                ),
+                              ),
+                              child: Text(
+                                'مسح'.tr,
+                                style: TextStyle(
+                                  fontFamily: AppTextStyles.appFontFamily,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 10.w),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.pop(ctx, temp),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                                padding: EdgeInsets.symmetric(vertical: 12.h),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10.r),
+                                ),
+                              ),
+                              child: Text(
+                                'تم'.tr,
+                                style: TextStyle(
+                                  fontFamily: AppTextStyles.appFontFamily,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (res == null) return;
+
+    setState(() {
+      final ids = res.toList()..sort();
+      if (ids.isEmpty) {
+        _attributeValues.remove(attribute.attributeId);
+      } else {
+        _attributeValues[attribute.attributeId] = ids;
+      }
+    });
+  }
+
+  List<int> _getSelectedIds(CategoryAttribute attribute) {
+    final v = _attributeValues[attribute.attributeId];
+    if (v is List<int>) return v;
+
+    if (v is List) {
+      final out = <int>[];
+      for (final x in v) {
+        if (x is int && x > 0) out.add(x);
+        if (x is String) {
+          final p = int.tryParse(x);
+          if (p != null && p > 0) out.add(p);
+        }
+      }
+      return out;
+    }
+
+    if (v is int) return [v];
+    if (v is String) {
+      final p = int.tryParse(v);
+      if (p != null) return [p];
+    }
+
+    return <int>[];
   }
 
   Widget _buildBooleanAttribute(CategoryAttribute attribute) {
@@ -609,7 +1206,14 @@ class _FilterScreenState extends State<FilterScreen> {
   Widget _buildTextAttribute(CategoryAttribute attribute) {
     return TextFormField(
       initialValue: _attributeValues[attribute.attributeId]?.toString() ?? '',
-      onChanged: (v) => _attributeValues[attribute.attributeId] = v,
+      onChanged: (v) {
+        final t = v.trim();
+        if (t.isEmpty) {
+          _attributeValues.remove(attribute.attributeId);
+        } else {
+          _attributeValues[attribute.attributeId] = t;
+        }
+      },
       decoration: _inputDecoration(hint: '${'أدخل'.tr} ${attribute.label}'),
     );
   }
@@ -618,18 +1222,14 @@ class _FilterScreenState extends State<FilterScreen> {
     return TextFormField(
       initialValue: _attributeValues[attribute.attributeId]?.toString() ?? '',
       keyboardType: TextInputType.number,
+      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9٠-٩\.\,،]'))],
       onChanged: (v) {
-        if (v.isEmpty) {
-          _attributeValues[attribute.attributeId] = null;
+        final t = _normalizeDigits(v).trim();
+        if (t.isEmpty) {
+          _attributeValues.remove(attribute.attributeId);
           return;
         }
-        const arabic = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
-        const latin  = ['0','1','2','3','4','5','6','7','8','9'];
-        final normalized = v.split('').map((c) {
-          final i = arabic.indexOf(c);
-          return i == -1 ? c : latin[i];
-        }).join();
-        _attributeValues[attribute.attributeId] = double.tryParse(normalized);
+        _attributeValues[attribute.attributeId] = t;
       },
       decoration: _inputDecoration(hint: '${'أدخل'.tr} ${attribute.label}'),
     );
@@ -659,7 +1259,7 @@ class _FilterScreenState extends State<FilterScreen> {
         _buildSectionTitle('الموقع'.tr),
         _buildCityDropdown(),
         if (_ads.selectedCity.value != null) ...[
-          SizedBox(height: 8.h), // تم تقليل المسافة
+          SizedBox(height: 8.h),
           _buildAreaDropdown(),
         ],
       ],
@@ -699,7 +1299,7 @@ class _FilterScreenState extends State<FilterScreen> {
               ),
             )
             .toList(),
-        onChanged: (city) => setState(() => _ads.selectCity(city!)),
+        onChanged: (city) => setState(() => _ads.selectCity(city)),
         dropdownColor: AppColors.card(isDark),
       ),
     );
@@ -746,25 +1346,15 @@ class _FilterScreenState extends State<FilterScreen> {
         final loading = snap.connectionState == ConnectionState.waiting;
         final hasError = snap.hasError;
 
-        if (loading) {
-          return _noteRow('جارٍ تحميل المناطق...'.tr);
-        }
-
-        if (hasError) {
-          return _noteRow('حدث خطأ أثناء الجلب'.tr);
-        }
-
-        if (list.isEmpty) {
-          return _noteRow('لا توجد مناطق'.tr);
-        }
+        if (loading) return _noteRow('جارٍ تحميل المناطق...'.tr);
+        if (hasError) return _noteRow('حدث خطأ أثناء الجلب'.tr);
+        if (list.isEmpty) return _noteRow('لا توجد مناطق'.tr);
 
         return ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 56),
           child: DropdownButtonFormField<Area>(
             key: ValueKey<int>(selectedCity.id),
-            value: list.any((a) => a.id == _ads.selectedArea.value?.id)
-                ? _ads.selectedArea.value
-                : null,
+            value: list.any((a) => a.id == _ads.selectedArea.value?.id) ? _ads.selectedArea.value : null,
             isExpanded: true,
             menuMaxHeight: MediaQuery.of(context).size.height * 0.5,
             decoration: InputDecoration(
@@ -782,7 +1372,7 @@ class _FilterScreenState extends State<FilterScreen> {
                   (a) => DropdownMenuItem<Area>(
                     value: a,
                     child: Text(
-                      a.name, // تم إصلاح الخطأ هنا - إزالة عرض الـ ID
+                      a.name,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontFamily: AppTextStyles.appFontFamily,
@@ -793,9 +1383,7 @@ class _FilterScreenState extends State<FilterScreen> {
                   ),
                 )
                 .toList(),
-            onChanged: (a) => setState(() {
-              if (a != null) _ads.selectArea(a);
-            }),
+            onChanged: (a) => setState(() => _ads.selectArea(a)),
             dropdownColor: AppColors.card(isDark),
           ),
         );
@@ -825,21 +1413,23 @@ class _FilterScreenState extends State<FilterScreen> {
   }
 
   Widget _buildTimePeriodSection() {
-    // القيم المتوقعة من الباك-إند
     final periods = [
+      {'value': '24h', 'label': 'آخر 24 ساعة'.tr},
+      {'value': '48h', 'label': 'آخر 48 ساعة'.tr},
       {'value': '2_days', 'label': 'آخر يومين'.tr},
       {'value': 'week', 'label': 'آخر أسبوع'.tr},
       {'value': 'month', 'label': 'آخر شهر'.tr},
       {'value': 'year', 'label': 'آخر سنة'.tr},
       {'value': 'all', 'label': 'كل الأوقات'.tr},
     ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionTitle('الفترة الزمنية'.tr),
         Wrap(
           spacing: 8.w,
-          runSpacing: 6.h, // تم تقليل المسافة
+          runSpacing: 6.h,
           children: periods.map((p) {
             final sel = _selectedTimePeriod == p['value'];
             return GestureDetector(
@@ -869,12 +1459,13 @@ class _FilterScreenState extends State<FilterScreen> {
 
   // ================ Actions ================
 
-  int? get _effectiveCategoryId => (_chosenCategoryId ?? widget.categoryId);
-
   List<Map<String, dynamic>> _buildAttributesPayload() {
-    return _attributeValues.entries.map((e) {
-      final id = e.key;
-      final val = e.value;
+    final out = <Map<String, dynamic>>[];
+
+    for (final entry in _attributeValues.entries) {
+      final id = entry.key;
+      final val = entry.value;
+
       final attr = _ads.attributesList.firstWhere(
         (a) => a.attributeId == id,
         orElse: () => CategoryAttribute(
@@ -882,18 +1473,74 @@ class _FilterScreenState extends State<FilterScreen> {
           label: 'غير معروف',
           type: 'غير معروف',
           isRequired: false,
+          isMultiSelect: false,
           options: const [],
         ),
       );
-      return {
-        'attribute_id': id,
-        'attribute_type': attr.type,
-        'value': val,
-      };
-    }).toList();
+
+      if (val == null) continue;
+
+      if (attr.type == 'options') {
+        final ids = <int>[];
+
+        if (val is List<int>) {
+          ids.addAll(val.where((x) => x > 0));
+        } else if (val is List) {
+          for (final v in val) {
+            if (v is int && v > 0) ids.add(v);
+            if (v is String) {
+              final p = int.tryParse(v);
+              if (p != null && p > 0) ids.add(p);
+            }
+          }
+        } else if (val is int && val > 0) {
+          ids.add(val);
+        } else if (val is String) {
+          final p = int.tryParse(val);
+          if (p != null && p > 0) ids.add(p);
+        }
+
+        final cleaned = ids.toSet().toList()..sort();
+        if (cleaned.isEmpty) continue;
+
+        out.add({
+          'attribute_id': id,
+          'attribute_type': 'options',
+          'value': cleaned,
+        });
+        continue;
+      }
+
+      if (attr.type == 'boolean') {
+        if (val is bool) {
+          out.add({'attribute_id': id, 'attribute_type': 'boolean', 'value': val});
+        } else {
+          final s = '${val ?? ''}'.toLowerCase().trim();
+          if (s.isEmpty) continue;
+          final b = (s == 'true' || s == '1' || s == 'yes' || s == 'نعم');
+          out.add({'attribute_id': id, 'attribute_type': 'boolean', 'value': b});
+        }
+        continue;
+      }
+
+      if (attr.type == 'text') {
+        final s = '${val ?? ''}'.trim();
+        if (s.isEmpty) continue;
+        out.add({'attribute_id': id, 'attribute_type': 'text', 'value': s});
+        continue;
+      }
+
+      if (attr.type == 'number') {
+        final s = '${val ?? ''}'.trim();
+        if (s.isEmpty) continue;
+        out.add({'attribute_id': id, 'attribute_type': 'number', 'value': s});
+        continue;
+      }
+    }
+
+    return out;
   }
 
-  // === تحويل + تنسيق
   String _normalizeDigits(String input) {
     const arabic = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩', '٬', '،', ','];
     const latin  = ['0','1','2','3','4','5','6','7','8','9', '',   '',   ''];
@@ -924,29 +1571,20 @@ class _FilterScreenState extends State<FilterScreen> {
   }
 
   String _priceSummary() {
-    final min = _parsePrice(_priceMinCtrl.text);
-    final max = _parsePrice(_priceMaxCtrl.text);
+    final minP = _parsePrice(_priceMinCtrl.text);
+    final maxP = _parsePrice(_priceMaxCtrl.text);
 
     if (_priceMode == PriceMode.minOnly) {
-      if (min == null) return 'اكتب الحد الأدنى لعرض إعلانات أعلى من هذه القيمة.'.tr;
-      return 'سيتم عرض الإعلانات بسعر أعلى من ${_formatWithGrouping(min)}.'.tr;
+      if (minP == null) return 'اكتب الحد الأدنى لعرض إعلانات أعلى من هذه القيمة.'.tr;
+      return 'سيتم عرض الإعلانات بسعر أعلى من ${_formatWithGrouping(minP)}.'.tr;
     }
 
-    // نطاق
-    if (min == null && max == null) {
-      return 'اترك السعر فارغًا لتجاهله.'.tr;
-    }
-    if (min != null && max == null) {
-      return 'سيتم عرض الإعلانات من ${_formatWithGrouping(min)} وحتى أي سعر أعلى.'.tr;
-    }
-    if (min == null && max != null) {
-      return 'سيتم عرض الإعلانات حتى ${_formatWithGrouping(max)}.'.tr;
-    }
-    if (min != null && max != null) {
-      if (min > max) {
-        return 'تنبيه: "من" أكبر من "إلى" — صحّح القيم.'.tr;
-      }
-      return 'سيتم عرض الإعلانات ضمن ${_formatWithGrouping(min)} – ${_formatWithGrouping(max)}.'.tr;
+    if (minP == null && maxP == null) return 'اترك السعر فارغًا لتجاهله.'.tr;
+    if (minP != null && maxP == null) return 'سيتم عرض الإعلانات من ${_formatWithGrouping(minP)} وحتى أي سعر أعلى.'.tr;
+    if (minP == null && maxP != null) return 'سيتم عرض الإعلانات حتى ${_formatWithGrouping(maxP)}.'.tr;
+    if (minP != null && maxP != null) {
+      if (minP > maxP) return 'تنبيه: "من" أكبر من "إلى" — صحّح القيم.'.tr;
+      return 'سيتم عرض الإعلانات ضمن ${_formatWithGrouping(minP)} – ${_formatWithGrouping(maxP)}.'.tr;
     }
     return '';
   }
@@ -957,10 +1595,9 @@ class _FilterScreenState extends State<FilterScreen> {
     ctrl
       ..text = newText
       ..selection = TextSelection.fromPosition(TextPosition(offset: newText.length));
-    setState(() {}); // تحديث الملخص/الأيقونات
+    setState(() {});
   }
 
-  // ✅ إصلاح تفريغ الحقول
   void _onResetPressed() {
     if (_isResetting) return;
     setState(() => _isResetting = true);
@@ -968,18 +1605,30 @@ class _FilterScreenState extends State<FilterScreen> {
     FocusScope.of(context).unfocus();
     _formKey.currentState?.reset();
 
-    // مسح القيم فورًا
+    // موقع
     _ads.selectedCity.value = null;
     _ads.selectedArea.value = null;
+
+    // فترة + خصائص
     _selectedTimePeriod = null;
     _attributeValues.clear();
     _ads.currentAttributes.clear();
+    _ads.resetAttributesState();
+
+    // السعر
     _priceMode = PriceMode.range;
     _priceMinCtrl.clear();
     _priceMaxCtrl.clear();
-    _chosenCategoryId = null; // إضافة هذا السطر لتفريغ التصنيف
 
-    // إعادة تعيين المفاتيح لإجبار إعادة البناء
+    // ✅ التصنيف
+    if (widget.categoryId == null || (widget.categoryId ?? 0) <= 0) {
+      _chosenCategoryId = null;
+      _ads.currentCategoryId.value = 0;
+    } else {
+      _chosenCategoryId = widget.categoryId;
+      _ads.currentCategoryId.value = widget.categoryId ?? 0;
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() {
@@ -991,8 +1640,7 @@ class _FilterScreenState extends State<FilterScreen> {
 
   Future<void> _applyFilters() async {
     if (_effectiveCategoryId == null) {
-      Get.snackbar('تنبيه'.tr, 'الرجاء اختيار التصنيف الرئيسي أولًا'.tr,
-          snackPosition: SnackPosition.BOTTOM);
+      Get.snackbar('تنبيه'.tr, 'الرجاء اختيار التصنيف الرئيسي أولًا'.tr, snackPosition: SnackPosition.BOTTOM);
       return;
     }
     if (!_formKey.currentState!.validate()) return;
@@ -1001,8 +1649,7 @@ class _FilterScreenState extends State<FilterScreen> {
     final priceMax = _priceMode == PriceMode.minOnly ? null : _parsePrice(_priceMaxCtrl.text);
 
     if (_priceMode == PriceMode.range && priceMin != null && priceMax != null && priceMin > priceMax) {
-      Get.snackbar('تنبيه'.tr, 'قيمة "من" يجب أن تكون أقل من أو تساوي "إلى"'.tr,
-          snackPosition: SnackPosition.BOTTOM);
+      Get.snackbar('تنبيه'.tr, 'قيمة "من" يجب أن تكون أقل من أو تساوي "إلى"'.tr, snackPosition: SnackPosition.BOTTOM);
       return;
     }
 
@@ -1012,7 +1659,9 @@ class _FilterScreenState extends State<FilterScreen> {
     final cityId = _ads.selectedCity.value?.id;
     final areaId = _ads.selectedArea.value?.id;
 
-    _ads.currentAttributes.value = attrs;
+    // ✅ ثبت الحالة في الكنترولر
+    _ads.currentCategoryId.value = _effectiveCategoryId!;
+    _ads.currentAttributes.assignAll(attrs);
 
     try {
       await _ads.fetchAds(
@@ -1032,7 +1681,9 @@ class _FilterScreenState extends State<FilterScreen> {
         page: 1,
       );
 
+      _didApply = true; // ✅ لا ترجع قيم الـ snapshot
       Get.back();
+
       final count = _ads.adsList.length;
       Future.delayed(const Duration(milliseconds: 250), () {
         final msg = count == 0 ? 'لا توجد إعلانات مطابقة'.tr : 'تم العثور على $count إعلان'.tr;

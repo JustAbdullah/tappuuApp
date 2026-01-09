@@ -15,17 +15,14 @@ import 'controllers/CurrencyController.dart';
 import 'controllers/ThemeController.dart';
 import 'controllers/home_controller.dart';
 import 'controllers/sharedController.dart';
-import 'controllers/AuthController.dart'; // 👈 جديد: تسجيل كنترولر الدخول
+import 'controllers/AuthController.dart';
 import 'core/localization/changelanguage.dart';
 import 'core/localization/AppTranslation.dart';
 import 'core/services/appservices.dart';
 import 'core/services/font_service.dart';
 import 'core/services/font_size_service.dart';
 import 'firebase_options.dart';
-
 import 'core/constant/appcolors.dart';
-
-// ✅ reCAPTCHA v3
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -43,7 +40,7 @@ String _normalizeStoredTopic(String raw) {
     final parts = raw.split('_');
     return parts.isNotEmpty ? parts.last : raw;
   }
-  return raw; // مفترض أن يكون رقم مثل '2'
+  return raw;
 }
 
 // ------------ Helpers لإدارة المواضيع (topics) في SharedPreferences ------------
@@ -56,7 +53,7 @@ Future<Set<String>> _getSavedTopics() async {
 
 Future<void> _resubscribeSavedTopics() async {
   try {
-    final topics = await _getSavedTopics(); // مصفاة: ['all','2','3']
+    final topics = await _getSavedTopics(); // ['all','2','3']
     for (final stored in topics) {
       final fcmTopic = _fcmTopicFromStored(stored); // 'all' أو 'category_2'
       try {
@@ -73,7 +70,7 @@ Future<void> _resubscribeSavedTopics() async {
 
 String _fcmTopicFromStored(String stored) {
   if (stored == 'all') return 'all';
-  return 'category_$stored'; // stored هنا رقم مثل '2'
+  return 'category_$stored';
 }
 // ------------------------------------------------------------------------------
 
@@ -84,7 +81,6 @@ Future<void> initializeFirebase() async {
     );
     debugPrint('Firebase initialized');
 
-    // سجل الـ background handler (لا تضع هذا داخل callbacks أخرى)
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   } catch (e) {
     debugPrint('Firebase init error: $e');
@@ -95,14 +91,12 @@ Future<void> setupFirebaseMessaging() async {
   try {
     final messaging = FirebaseMessaging.instance;
 
-    // اعرض الإشعارات في الـ foreground (iOS)
     await messaging.setForegroundNotificationPresentationOptions(
       alert: true,
       badge: true,
       sound: true,
     );
 
-    // طلب تصريح الإشعارات
     NotificationSettings settings = await messaging.requestPermission(
       alert: true,
       badge: true,
@@ -111,11 +105,9 @@ Future<void> setupFirebaseMessaging() async {
     );
     debugPrint('Permission status: ${settings.authorizationStatus}');
 
-    // احصل على التوكن
     final token = await messaging.getToken();
     debugPrint('FCM Token: $token');
 
-    // اشترك بالقناة الرئيسية "all"
     try {
       await messaging.subscribeToTopic("all");
       debugPrint('Subscribed to topic: all');
@@ -123,16 +115,13 @@ Future<void> setupFirebaseMessaging() async {
       debugPrint('Failed to subscribe to "all": $e');
     }
 
-    // إذا كان لدينا مواضيع محفوظة سابقًا فنعيد الاشتراك بها
     await _resubscribeSavedTopics();
 
-    // استمع لتغيير التوكن (عند تحديثه أعد الاشتراك في المواضيع المحفوظة)
     FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
       debugPrint('FCM onTokenRefresh: $newToken - re-subscribing saved topics');
       await _resubscribeSavedTopics();
     });
 
-    // استمع للإشعارات أثناء كون التطبيق في الـ foreground
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       debugPrint('Foreground message received: ${message.messageId}');
       debugPrint('Message data: ${message.data}');
@@ -142,7 +131,6 @@ Future<void> setupFirebaseMessaging() async {
       }
     });
 
-    // استمع عند فتح التطبيق من خلال الضغط على إشعار
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       debugPrint('onMessageOpenedApp: ${message.messageId}');
       debugPrint('Payload data: ${message.data}');
@@ -163,14 +151,12 @@ class DeepLinkHandler {
   Stream<String> get linkStream => _linkStreamController.stream;
 
   void init() {
-    // الحصول على الرابط الأولي
     _getInitialLink().then((link) {
       if (link != null) {
         _linkStreamController.add(link);
       }
     });
 
-    // الاستماع للروابط الجديدة
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onNewLink') {
         final link = call.arguments as String?;
@@ -232,37 +218,26 @@ void runSafeBackgroundTask(
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ✅ تهيئة reCAPTCHA v3
   RecaptchaHandler.instance.setupSiteKey(
     dataSiteKey: '6LeUpggsAAAAAGetn0JGpR0IraF9YBHCi7ovkKLh',
   );
 
-  // تسجيل متحكم الألوان وجلب اللون الأساسي أولاً
   final colorController = Get.put(ColorController());
 
-  // تهيئة Firebase أولاً
   await initializeFirebase();
 
-  // تهيئة الخدمات الأساسية (AppServices يتم تسجيله داخل الدالة)
   await _setSystemUI();
   await _initializeEssentialServices();
 
-  // ✅ هنا أهم تعديل: تسجيل AuthController كـ permanent
-  // عشان لما ترجع من reCAPTCHA ما ينمسح وتبقى قيمة currentStep كما هي
   Get.put(AuthController(), permanent: true);
 
-  // قم بتشغيل تهيئة FCM بشكل غير محجوز لكي لا تؤخر بدء التطبيق.
   unawaited(setupFirebaseMessaging());
 
-  // تهيئة معالج الروابط العميقة
   final deepLinkHandler = DeepLinkHandler.instance;
   deepLinkHandler.init();
 
-  // انتظار جلب اللون الأساسي لمدة 3 ثواني كحد أقصى (بدون Unhandled errors)
   try {
-    await colorController
-        .fetchPrimaryColor()
-        .timeout(const Duration(seconds: 3));
+    await colorController.fetchPrimaryColor().timeout(const Duration(seconds: 3));
   } on TimeoutException catch (e) {
     debugPrint('ColorController.fetchPrimaryColor timeout (3s): $e');
   } catch (e) {
@@ -294,46 +269,39 @@ Future<void> _setSystemUI() async {
 
 Future<void> _initializeEssentialServices() async {
   try {
-    // 1) تهيئة AppServices وتسجيله في Get (مهم: حتى يتمكن ImagesPath وغيره من الوصول)
     final appServices = await AppServices.init();
     Get.put(appServices, permanent: true);
 
-    // 2.a) جلب شعار التطبيق من الـ API (خلفية + timeout)
     runSafeBackgroundTask(
       () => appServices.fetchAndStoreAppLogo(),
       'AppLogo',
       timeout: const Duration(seconds: 3),
     );
 
-    // 2.b) جلب شاشة الانتظار من الـ API (خلفية + timeout أطول)
     runSafeBackgroundTask(
       () => appServices.fetchAndStoreWaitingScreen(),
       'WaitingScreen',
       timeout: const Duration(seconds: 8),
     );
 
-    // 2.c) جلب وتطبيق أحجام الخطوط (FontSizeService) – في الخلفية
     runSafeBackgroundTask(
       () => FontSizeService.instance.init(),
       'FontSizeService',
       timeout: const Duration(seconds: 3),
     );
 
-    // 2.d) تحميل وتسجيل الخط النشط (FontService) – في الخلفية
     runSafeBackgroundTask(
       () => FontService.instance.init(),
       'FontService',
       timeout: const Duration(seconds: 5),
     );
 
-    // 3) تسجيل بقية الخدمات والمتغيرات (سريع)
     Get.lazyPut(() => HomeController(), fenix: true);
     Get.lazyPut(() => ThemeController(), fenix: true);
     Get.lazyPut(() => ChangeLanguageController(), fenix: true);
     Get.lazyPut(() => CurrencyController(), fenix: true);
     Get.put(SharedController(), permanent: true);
 
-    // لا حاجة للانتظار — مجرد استدعاء للحصول على رابط الشعار المحفوظ
     appServices.getStoredAppLogoUrl();
   } catch (e) {
     debugPrint("❌ _initializeEssentialServices fatal error: $e");
@@ -345,7 +313,6 @@ ThemeMode _resolveThemeMode(dynamic controller) {
   try {
     if (controller == null) return ThemeMode.system;
 
-    // 1) تحقق إذا فيه themeMode مباشرة
     try {
       final cand = (controller as dynamic).themeMode;
       if (cand is ThemeMode) return cand;
@@ -358,7 +325,6 @@ ThemeMode _resolveThemeMode(dynamic controller) {
       }
     } catch (_) {}
 
-    // 2) تحقق خواص بوليانية شائعة: isDark / isDarkMode / darkMode / value
     try {
       final isDarkCandidates = [
         (controller as dynamic).isDark,
@@ -375,7 +341,6 @@ ThemeMode _resolveThemeMode(dynamic controller) {
       }
     } catch (_) {}
 
-    // 3) تحقق إذا فيه حقل theme بعنوان نصي مثل 'light'/'dark'
     try {
       final t = (controller as dynamic).theme;
       if (t is String) {
@@ -385,7 +350,6 @@ ThemeMode _resolveThemeMode(dynamic controller) {
       }
     } catch (_) {}
 
-    // 4) fallback system
     return ThemeMode.system;
   } catch (_) {
     return ThemeMode.system;
@@ -410,9 +374,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _setSystemUI();
 
-    // الاستماع للروابط العميقة
     _deepLinkSubscription = _deepLinkHandler.linkStream.listen((link) {
-      // تمرير الرابط إلى SharedController لمعالجته
       Get.find<SharedController>().handleDeepLink(link);
     });
   }
@@ -470,7 +432,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           builder: (langController) {
             return GetBuilder<ThemeController>(
               builder: (themeController) {
-                // إعداد الثيم الفاتح مستخدماً AppColors
                 final ThemeData lightTheme = ThemeData(
                   brightness: Brightness.light,
                   primaryColor: AppColors.primary,
@@ -509,7 +470,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                   ),
                 );
 
-                // إعداد الثيم الداكن مستخدماً AppColors
                 final ThemeData darkTheme = ThemeData(
                   brightness: Brightness.dark,
                   primaryColor: AppColors.primary,
@@ -548,7 +508,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                   ),
                 );
 
-                // استخرج ThemeMode بشكل مرن من الكنترولر (آمن)
                 final ThemeMode themeMode = _resolveThemeMode(themeController);
 
                 return WillPopScope(
@@ -556,7 +515,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                   child: GetMaterialApp(
                     debugShowCheckedModeBanner: false,
                     translations: AppTranslation(),
-                    // نستخدم locale من الكنترولر، والكنترولر نفسه يضمن أنها عربية دائماً.
                     locale: langController.currentLocale.value,
                     fallbackLocale: const Locale('ar'),
                     title: "طابوو",
@@ -564,18 +522,25 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                     theme: lightTheme,
                     darkTheme: darkTheme,
                     themeMode: themeMode,
+
+                    // ✅✅✅ هنا التعديل المهم: SafeArea سفلي عالمي
                     builder: (context, child) {
-                      final langCode =
-                          langController.currentLocale.value.languageCode;
-                      final isRtl =
-                          ['ar', 'ku', 'fa', 'ur'].contains(langCode);
+                      final langCode = langController.currentLocale.value.languageCode;
+                      final isRtl = ['ar', 'ku', 'fa', 'ur'].contains(langCode);
+
+                      final mq = MediaQuery.of(context);
+
                       return Directionality(
-                        textDirection:
-                            isRtl ? TextDirection.rtl : TextDirection.ltr,
+                        textDirection: isRtl ? TextDirection.rtl : TextDirection.ltr,
                         child: MediaQuery(
-                          data: MediaQuery.of(context)
-                              .copyWith(textScaleFactor: 1.0),
-                          child: child!,
+                          data: mq.copyWith(textScaleFactor: 1.0),
+                          child: SafeArea(
+                            top: false,     // لا نلمس الأعلى عشان AppBar
+                            bottom: true,   // ✅ الحماية الأساسية لمشكلتك
+                            left: true,
+                            right: true,
+                            child: child ?? const SizedBox.shrink(),
+                          ),
                         ),
                       );
                     },
