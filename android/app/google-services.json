@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "6952523205",
+    "project_id": "tappuu-7c425",
+    "storage_bucket": "tappuu-7c425.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:6952523205:android:f9963977ed3f8ae88227ac",
+        "android_client_info": {
+          "package_name": "com.taapuu"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCNvTqN18riHuLpNZ4MwF7pX6POuYF4qjM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

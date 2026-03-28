@@ -1,0 +1,240 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:get/get.dart';
+import 'package:shimmer/shimmer.dart';
+
+import '../../controllers/AdsManageController.dart';
+import '../../controllers/CurrencyController.dart';
+import '../../controllers/LoadingController.dart';
+import '../../controllers/ThemeController.dart';
+import '../../core/constant/appcolors.dart';
+import '../../core/constant/app_text_styles.dart';
+import 'UserAdItem.dart';
+
+class UserAdsScreen extends StatelessWidget {
+  final String statusAds ;
+  final String name;
+  const UserAdsScreen({super.key, required this.statusAds, required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    final themeController = Get.find<ThemeController>();
+    final isDarkMode = themeController.isDarkMode.value;
+    final adsController = Get.put(ManageAdController());
+        Get.lazyPut(() =>CurrencyController(), fenix: true);
+
+  final LoadingController loadingC = Get.find<LoadingController>();
+
+    // جلب إعلانات المستخدم عند فتح الشاشة
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (loadingC.currentUser != null) {
+        adsController.fetchUserAds(userId: loadingC.currentUser?.id??0, status: statusAds.toString());
+      }
+    });
+
+    return Scaffold(
+      backgroundColor: AppColors.background(isDarkMode),
+      appBar: AppBar(
+        title: Text(
+          'إعلاناتي'.tr,
+          style: TextStyle(
+            color: AppColors.onPrimary,
+            fontFamily: AppTextStyles.appFontFamily,
+            fontSize: AppTextStyles.xxlarge,
+
+            fontWeight: FontWeight.bold,
+          ),
+        ),  leading: IconButton(icon: Icon(Icons.arrow_back, color: AppColors.onPrimary), onPressed: () {
+
+Get.back();
+Get.back();
+        }),
+        backgroundColor: AppColors.appBar(isDarkMode),
+        elevation: 0,
+        actions: [
+          // زر التعديل
+        
+        ],
+      ),
+      body: Obx(() {
+        return Column(
+          children: [
+            // العنوان الرئيسي
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                  name.tr,
+                    style: TextStyle(
+                      fontFamily: AppTextStyles.appFontFamily,
+                      fontSize: AppTextStyles.xlarge,
+
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.buttonAndLinksColor,
+                    ),
+                  ),
+                  // عدد الإعلانات
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 4.h),
+                    decoration: BoxDecoration(
+                      color: AppColors.buttonAndLinksColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12.r),
+                    ),
+                    child: Text(
+                      adsController.userAdsList.length.toString(),
+                      style: TextStyle(
+                        fontFamily: AppTextStyles.appFontFamily,
+                        fontSize: AppTextStyles.medium,
+
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.buttonAndLinksColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: adsController.isLoadingUserAds.value
+                  ? _buildShimmerLoader()
+                  : adsController.userAdsList.isEmpty
+                      ? Center(
+                          child: Text(
+                            'لا توجد إعلانات منشورة'.tr,
+                            style: TextStyle(
+                              fontFamily: AppTextStyles.appFontFamily,
+                              fontSize: AppTextStyles.xlarge,
+
+                              color: AppColors.textSecondary(isDarkMode),
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: EdgeInsets.symmetric(vertical: 8.h),
+                          itemCount: adsController.userAdsList.length,
+                          itemBuilder: (context, index) {
+                            return UserAdItem(
+                              ad: adsController.userAdsList[index],
+                             
+                            );
+                          },
+                        ),
+            ),
+          ],
+        );
+      }),
+    );
+  }
+
+  // مؤشر التحميل الوميضي
+  Widget _buildShimmerLoader() {
+    final themeController = Get.find<ThemeController>();
+    final isDarkMode = themeController.isDarkMode.value;
+    
+    return ListView.builder(
+      padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 16.w),
+      itemCount: 5,
+      itemBuilder: (context, index) {
+        return Container(
+          margin: EdgeInsets.only(bottom: 16.h),
+          decoration: BoxDecoration(
+            color: AppColors.surface(isDarkMode),
+            borderRadius: BorderRadius.circular(0.r),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.02),
+                blurRadius: 8,
+                spreadRadius: 1,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Shimmer.fromColors(
+            baseColor: isDarkMode ? Colors.grey[800]! : Colors.grey[300]!,
+            highlightColor: isDarkMode ? Colors.grey[700]! : Colors.grey[100]!,
+            child: Padding(
+              padding: EdgeInsets.all(10.w),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              height: 18.h,
+                              width: double.infinity,
+                              color: Colors.white,
+                            ),
+                            SizedBox(height: 6.h),
+                            Container(
+                              height: 16.h,
+                              width: 250.w,
+                              color: Colors.white,
+                            ),
+                            SizedBox(height: 12.h),
+                            Container(
+                              height: 24.h,
+                              width: 120.w,
+                              color: Colors.white,
+                            ),
+                            SizedBox(height: 16.h),
+                            Row(
+                              children: [
+                                Icon(Icons.location_on, size: 16.sp, color: Colors.transparent),
+                                SizedBox(width: 4.w),
+                                Container(
+                                  height: 16.h,
+                                  width: 120.w,
+                                  color: Colors.white,
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 8.h),
+                            Container(
+                              height: 14.h,
+                              width: 90.w,
+                              color: Colors.white,
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(width: 16.w),
+                      Container(
+                        width: 150.w,
+                        height: 100.h,
+                        color: Colors.white,
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 12.h),
+                  Wrap(
+                    spacing: 8.w,
+                    runSpacing: 8.h,
+                    children: List.generate(3, (index) => Container(
+                      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8.r),
+                      ),
+                      child: Container(
+                        width: 50.w,
+                        height: 12.h,
+                        color: Colors.white,
+                      ),
+                    )),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}

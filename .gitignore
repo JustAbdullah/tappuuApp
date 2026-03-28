@@ -1,0 +1,105 @@
+# =========================
+# General / Misc
+# =========================
+*.class
+*.log
+*.pyc
+*.swp
+*.lock
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+
+# =========================
+# IDE
+# =========================
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+
+# =========================
+# Flutter / Dart / Pub
+# =========================
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+.pub-cache/
+build/
+coverage/
+
+# =========================
+# Project-local caches
+# =========================
+.gradle/
+.gradle-home/
+
+# =========================
+# Android
+# =========================
+android/.gradle/
+android/captures/
+android/local.properties
+android/app/debug/
+android/app/profile/
+android/app/release/
+
+# Generated Android artifacts
+*.apk
+*.aab
+
+# =========================
+# iOS
+# =========================
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/ephemeral/
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+
+# CocoaPods / Xcode user data
+ios/Podfile.lock
+ios/Runner.xcworkspace/
+ios/xcuserdata/
+
+# =========================
+# macOS
+# =========================
+macos/Pods/
+macos/.symlinks/
+macos/Flutter/ephemeral/
+macos/Podfile.lock
+macos/Runner.xcworkspace/
+macos/xcuserdata/
+
+# =========================
+# Linux / Windows generated
+# =========================
+linux/flutter/ephemeral/
+windows/flutter/ephemeral/
+
+# =========================
+# Symbolication / Obfuscation
+# =========================
+app.*.symbols
+app.*.map.json
+
+# =========================
+# Optional archives / temp
+# =========================
+*.zip
+*.tar
+*.gz
+*.7z
+*.tmp
+*.temp
